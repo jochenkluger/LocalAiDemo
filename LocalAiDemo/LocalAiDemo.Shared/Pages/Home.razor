@@ -1,0 +1,211 @@
+﻿@page "/"
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Models
+@inject IFormFactor FormFactor
+
+<PageTitle>Chat Demo</PageTitle>
+<link rel="stylesheet" href="_content/LocalAiDemo.Shared/chat.css" />
+
+<div class="chat-container">
+    <!-- Left Column - Chat List -->
+    <div class="chat-list">
+        <h2>Chats</h2>
+        <div class="search-box">
+            <input type="text" placeholder="Suche..." />
+        </div>
+        <div class="chat-items">
+            @foreach (var chat in chats)
+            {
+                <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
+                    <div class="chat-title">@chat.Title</div>
+                    <div class="chat-preview">@GetChatPreview(chat)</div>
+                    <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
+                </div>
+            }
+        </div>
+        <div class="new-chat-button">
+            <button @onclick="CreateNewChat">Neuer Chat</button>
+        </div>
+    </div>
+
+    <!-- Middle Column - Current Chat -->
+    <div class="current-chat">
+        @if (selectedChat != null)
+        {
+            <div class="chat-header">
+                <h2>@selectedChat.Title</h2>
+            </div>
+            <div class="chat-messages">
+                @foreach (var message in selectedChat.Messages)
+                {
+                    <div class="message @(message.IsUser ? "user-message" : "ai-message")">
+                        <div class="message-content">@message.Content</div>
+                        <div class="message-time">@FormatTime(message.Timestamp)</div>
+                    </div>
+                }
+            </div>
+            <div class="chat-input">
+                <textarea placeholder="Nachricht eingeben..." @bind="newMessage"></textarea>
+                <button @onclick="SendMessage">Senden</button>
+            </div>
+        }
+        else
+        {
+            <div class="no-chat-selected">
+                <p>Bitte wählen Sie einen Chat aus oder erstellen Sie einen neuen Chat.</p>
+            </div>
+        }
+    </div>
+
+    <!-- Right Column - Measurements -->
+    <div class="measurements">
+        <h2>Messwerte</h2>
+        <div class="measurement-items">
+            @foreach (var measurement in measurements)
+            {
+                <div class="measurement-item">
+                    <div class="measurement-name">@measurement.Name</div>
+                    <div class="measurement-value">@measurement.Value @measurement.Unit</div>
+                    <div class="measurement-time">@FormatTime(measurement.Timestamp)</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+
+@code {
+    private string factor => FormFactor.GetFormFactor();
+    private string platform => FormFactor.GetPlatform();
+
+    // Sample data for chats
+    private List<Chat> chats = new List<Chat>
+    {
+        new Chat
+        {
+            Id = 1,
+            Title = "Chat mit KI-Assistent",
+            CreatedAt = DateTime.Now.AddDays(-2),
+            IsActive = true,
+            Messages = new List<ChatMessage>
+            {
+                new ChatMessage { Id = 1, Content = "Hallo, wie kann ich dir helfen?", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(1), IsUser = false },
+                new ChatMessage { Id = 2, Content = "Ich möchte mehr über KI erfahren.", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(2), IsUser = true },
+                new ChatMessage { Id = 3, Content = "Künstliche Intelligenz (KI) ist ein Teilgebiet der Informatik, das sich mit der Automatisierung intelligenten Verhaltens befasst.", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(3), IsUser = false },
+            }
+        },
+        new Chat
+        {
+            Id = 2,
+            Title = "Technischer Support",
+            CreatedAt = DateTime.Now.AddDays(-1),
+            IsActive = false,
+            Messages = new List<ChatMessage>
+            {
+                new ChatMessage { Id = 4, Content = "Willkommen beim technischen Support. Wie kann ich Ihnen helfen?", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(1), IsUser = false },
+                new ChatMessage { Id = 5, Content = "Mein Computer startet nicht mehr.", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(2), IsUser = true },
+                new ChatMessage { Id = 6, Content = "Haben Sie versucht, ihn neu zu starten?", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(3), IsUser = false },
+            }
+        },
+        new Chat
+        {
+            Id = 3,
+            Title = "Produktberatung",
+            CreatedAt = DateTime.Now.AddHours(-5),
+            IsActive = false,
+            Messages = new List<ChatMessage>
+            {
+                new ChatMessage { Id = 7, Content = "Wie kann ich Ihnen bei der Produktauswahl helfen?", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(1), IsUser = false },
+                new ChatMessage { Id = 8, Content = "Ich suche ein neues Smartphone.", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(2), IsUser = true },
+                new ChatMessage { Id = 9, Content = "Welche Funktionen sind Ihnen besonders wichtig?", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(3), IsUser = false },
+            }
+        }
+    };
+
+    // Sample data for measurements
+    private List<Measurement> measurements = new List<Measurement>
+    {
+        new Measurement { Id = 1, Name = "CPU-Auslastung", Value = 45.2, Unit = "%", Timestamp = DateTime.Now.AddMinutes(-5) },
+        new Measurement { Id = 2, Name = "Speichernutzung", Value = 3.7, Unit = "GB", Timestamp = DateTime.Now.AddMinutes(-5) },
+        new Measurement { Id = 3, Name = "Netzwerkverkehr", Value = 1.2, Unit = "MB/s", Timestamp = DateTime.Now.AddMinutes(-5) },
+        new Measurement { Id = 4, Name = "Latenz", Value = 23, Unit = "ms", Timestamp = DateTime.Now.AddMinutes(-5) },
+        new Measurement { Id = 5, Name = "Temperatur", Value = 42, Unit = "°C", Timestamp = DateTime.Now.AddMinutes(-5) }
+    };
+
+    private int selectedChatId = 1;
+    private Chat selectedChat => chats.FirstOrDefault(c => c.Id == selectedChatId);
+    private string newMessage = "";
+
+    private void SelectChat(int chatId)
+    {
+        selectedChatId = chatId;
+    }
+
+    private void CreateNewChat()
+    {
+        var newChatId = chats.Max(c => c.Id) + 1;
+        var newChat = new Chat
+        {
+            Id = newChatId,
+            Title = $"Neuer Chat {newChatId}",
+            CreatedAt = DateTime.Now,
+            IsActive = true,
+            Messages = new List<ChatMessage>
+            {
+                new ChatMessage { Id = 1, Content = "Hallo, wie kann ich dir helfen?", Timestamp = DateTime.Now, IsUser = false }
+            }
+        };
+
+        chats.Add(newChat);
+        selectedChatId = newChatId;
+    }
+
+    private void SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || selectedChat == null)
+            return;
+
+        var messageId = selectedChat.Messages.Count > 0 ? selectedChat.Messages.Max(m => m.Id) + 1 : 1;
+        selectedChat.Messages.Add(new ChatMessage
+        {
+            Id = messageId,
+            Content = newMessage,
+            Timestamp = DateTime.Now,
+            IsUser = true
+        });
+
+        // Simulate AI response
+        messageId++;
+        selectedChat.Messages.Add(new ChatMessage
+        {
+            Id = messageId,
+            Content = "Danke für Ihre Nachricht. Ich werde mich darum kümmern.",
+            Timestamp = DateTime.Now.AddSeconds(1),
+            IsUser = false
+        });
+
+        newMessage = "";
+    }
+
+    private string GetChatPreview(Chat chat)
+    {
+        var lastMessage = chat.Messages.OrderByDescending(m => m.Timestamp).FirstOrDefault();
+        return lastMessage?.Content ?? "";
+    }
+
+    private string FormatTime(DateTime time)
+    {
+        if (time.Date == DateTime.Now.Date)
+        {
+            return time.ToString("HH:mm");
+        }
+        else if (time.Date == DateTime.Now.Date.AddDays(-1))
+        {
+            return "Gestern";
+        }
+        else
+        {
+            return time.ToString("dd.MM.yyyy");
+        }
+    }
+}

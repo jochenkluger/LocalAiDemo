@@ -216,84 +216,53 @@
                 Logger.LogError(ex, "Error updating UI: {ErrorMessage}", ex.Message);
             }
         });
-    }    private async Task SelectChat(int chatId)
+    }
+
+    private async Task SelectChat(int chatId)
     {
-        try
+        Logger.LogInformation("SelectChat called with chatId={ChatId}", chatId);
+        selectedChatId = chatId;
+        
+        // Make sure we have the latest data
+        var chat = await ChatDatabase.GetChatAsync(chatId);
+        
+        if (chat != null)
         {
-            Logger.LogInformation("SelectChat called with chatId={ChatId}", chatId);
-            
-            if (chatId <= 0)
-            {
-                Logger.LogWarning("Invalid chatId: {ChatId}", chatId);
-                return;
-            }
-            
-            selectedChatId = chatId;
-            
-            // Make sure we have the latest data
-            Chat? chat = null;
-            try
-            {
-                chat = await ChatDatabase.GetChatAsync(chatId);
-                if (chat == null)
-                {
-                    Logger.LogWarning("ChatDatabase.GetChatAsync({ChatId}) returned null", chatId);
-                    
-                    // Try to use the ChatService as a fallback
-                    chat = await ChatService.GetChatAsync(chatId);
-                    if (chat == null)
-                    {
-                        Logger.LogWarning("ChatService.GetChatAsync({ChatId}) also returned null", chatId);
-                    }
-                    else
-                    {
-                        Logger.LogInformation("Retrieved chat from ChatService: {ChatId}", chat.Id);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error retrieving chat {ChatId}: {ErrorMessage}", chatId, ex.Message);
-            }
-            
-            if (chat != null)
-            {
-                Logger.LogInformation("Retrieved chat: id={ChatId}, Title={Title}, Messages={Count}", 
-                    chat.Id, chat.Title, chat.Messages.Count);
-                    
-                // Update the chat in our list
-                var index = chats.FindIndex(c => c.Id == chatId);
-                if (index >= 0)
-                {
-                    chats[index] = chat;
-                    Logger.LogInformation("Updated chat in list at index {Index}", index);
-                }
-                else
-                {
-                    Logger.LogWarning("Chat {ChatId} not found in chat list!", chatId);
-                    // Add it to the list as it should be there
-                    chats.Insert(0, chat);
-                    Logger.LogInformation("Added chat to list");
-                }
+            Logger.LogInformation("Retrieved chat: id={ChatId}, Title={Title}, Messages={Count}", 
+                chat.Id, chat.Title, chat.Messages.Count);
                 
-                // Force UI update
-                await InvokeAsync(StateHasChanged);
-                Logger.LogInformation("UI updated after chat selection");
-                  // Force UI update for the ChatView component
-                Logger.LogInformation("Forcing UI update for ChatView");
-                await InvokeAsync(StateHasChanged);
+            // Update the chat in our list
+            var index = chats.FindIndex(c => c.Id == chatId);
+            if (index >= 0)
+            {
+                chats[index] = chat;
+                Logger.LogInformation("Updated chat in list at index {Index}", index);
             }
             else
             {
-                Logger.LogWarning("Selected chat {ChatId} not found in database", chatId);
+                Logger.LogWarning("Chat {ChatId} not found in chat list!", chatId);
+                // Add it to the list as it should be there
+                chats.Insert(0, chat);
+                Logger.LogInformation("Added chat to list");
+            }
+            
+            // Force UI update
+            await InvokeAsync(StateHasChanged);
+            Logger.LogInformation("UI updated after chat selection");
+            
+            // Notify the ChatView component that the chat has changed
+            if (chatViewComponent != null)
+            {
+                chatViewComponent.ChatUpdated();
             }
         }
-        catch (Exception ex)
+        else
         {
-            Logger.LogError(ex, "Error in SelectChat: {ErrorMessage}", ex.Message);
+            Logger.LogWarning("Selected chat {ChatId} not found in database", chatId);
         }
     }
-      private async Task ShowPersonSelectModal()
+    
+    private async Task ShowPersonSelectModal()
     {
         // Reload persons list before showing the modal
         Logger.LogDebug("Reloading persons before showing modal");
@@ -323,14 +292,14 @@
             
             // Force UI update
             StateHasChanged();
-            
-            Logger.LogDebug("Modal should now be visible");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error in ShowPersonSelectModal: {ErrorMessage}", ex.Message);
         }
-    }    private async Task OnPersonSelected(Person person)
+    }
+    
+    private async Task OnPersonSelected(Person person)
     {
         try
         {
@@ -343,97 +312,27 @@
                 return;
             }
             
-            // Log the ChatService instance to see if it's properly injected
-            if (ChatService == null)
-            {
-                Logger.LogError("ChatService is null! Service was not injected properly.");
-                
-                // Fall back to direct creation if ChatService is not available
-                Logger.LogInformation("Falling back to direct chat creation");
-                var newChat = new Chat
-                {
-                    Title = $"Chat with {person.Name}",
-                    CreatedAt = DateTime.Now,
-                    IsActive = true,
-                    PersonId = person.Id,
-                    Person = person,
-                    Messages = new List<ChatMessage>()
-                };
-                
-                // Add the first message
-                var firstMessage = new ChatMessage
-                {
-                    Content = $"Hallo, ich bin {person.Name} vom {person.Department}. Wie kann ich dir helfen?",
-                    Timestamp = DateTime.Now,
-                    IsUser = false
-                };
-                newChat.Messages.Add(firstMessage);
-                
-                try
-                {
-                    // Save using ChatDatabase directly
-                    var chatId = await ChatDatabase.SaveChatAsync(newChat);
-                    newChat.Id = chatId;
-                    
-                    chats.Insert(0, newChat);
-                    displayedChats = new List<Chat>(chats);
-                    
-                    selectedChatId = chatId;
-                    await InvokeAsync(StateHasChanged);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "Error in fallback chat creation: {ErrorMessage}", ex.Message);
-                }
-                
-                return;
-            }
-            
+            // Use ChatService to create a new chat with the selected person
             Logger.LogInformation("Creating new chat with person {PersonId} ({PersonName})", person.Id, person.Name);
+            var newChat = await ChatService.CreateNewChatAsync(person);
             
-            try 
-            {
-                // Use ChatService to create a new chat with the selected person
-                var newChat = await ChatService.CreateNewChatAsync(person);
-                
-                if (newChat == null)
-                {
-                    Logger.LogError("ChatService.CreateNewChatAsync returned null!");
-                    return;
-                }
-                
-                Logger.LogInformation("New chat created with ID: {ChatId}", newChat.Id);
-                
-                if (newChat.Id == 0)
-                {
-                    Logger.LogWarning("New chat has ID=0, which may indicate it wasn't saved correctly");
-                }
-                
-                // Add to our list and select it
-                chats.Insert(0, newChat);
-                displayedChats = new List<Chat>(chats);
-                
-                // Set the selectedChatId directly
-                selectedChatId = newChat.Id;
-                
-                // Force UI update first
-                await InvokeAsync(StateHasChanged);
-                
-                // Then use SelectChat to refresh the UI with the new chat
-                Logger.LogInformation("Selecting chat with ID: {ChatId}", newChat.Id);
-                await SelectChat(newChat.Id);
-                
-                Logger.LogInformation("UI updated with new chat");
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error creating chat with ChatService: {ErrorMessage}", ex.Message);
-            }
+            Logger.LogInformation("New chat created with ID: {ChatId}", newChat.Id);
+            
+            // Add to our list and select it
+            chats.Insert(0, newChat);
+            displayedChats = new List<Chat>(chats);
+            
+            // Explicitly select the chat
+            await SelectChat(newChat.Id);
+            
+            // Force UI update
+            await InvokeAsync(StateHasChanged);
+            Logger.LogInformation("UI updated with new chat");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Overall error in OnPersonSelected: {ErrorMessage}", ex.Message);
-            await InvokeAsync(StateHasChanged);
+            Logger.LogError(ex, "Error in OnPersonSelected: {ErrorMessage}", ex.Message);
+            StateHasChanged();
         }
     }
 

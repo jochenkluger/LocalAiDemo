@@ -25,7 +25,7 @@
     <ApplicationTitle>LocalAiDemo</ApplicationTitle>
 
     <!-- App Identifier -->
-    <ApplicationId>com.companyname.localaidemo</ApplicationId>
+    <ApplicationId>net.kluger.localaidemo</ApplicationId>
 
     <!-- Versions -->
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
@@ -61,13 +61,36 @@
   </ItemGroup>
 
   <ItemGroup>
+    <MauiAsset Remove="SQLiteExtensions\README.txt" />
+    <MauiAsset Remove="SQLiteExtensions\vec0.dll" />
+    <MauiAsset Remove="SQLiteExtensions\vec0.dylib" />
+    <MauiAsset Remove="SQLiteExtensions\vec0.so" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
+    <PackageReference Include="sqlite-net-pcl" Version="1.8.116" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LocalAiDemo.Shared\LocalAiDemo.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="SQLiteExtensions\README.txt">
+      <LogicalName>%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </None>
+    <None Update="SQLiteExtensions\vec0.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="SQLiteExtensions\vec0.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="SQLiteExtensions\vec0.so">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

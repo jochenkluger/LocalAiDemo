@@ -1,5 +1,5 @@
-using LocalAiDemo.Web.Components;
 using LocalAiDemo.Shared.Services;
+using LocalAiDemo.Web.Components;
 using LocalAiDemo.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);

@@ -1,0 +1,201 @@
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using Microsoft.Extensions.Logging
+@inject IAiAssistantService AiAssistant
+@inject IChatDatabaseService ChatDatabase
+@inject IEmbeddingService EmbeddingService
+@inject ILogger<ChatView> Logger
+
+<div class="chat-container-view">
+    @if (CurrentChat != null)
+    {
+        <div class="chat-header">
+            @if (CurrentChat.Person != null)
+            {
+                <div class="chat-person-info">
+                    <div class="person-avatar">
+                        @if (!string.IsNullOrEmpty(CurrentChat.Person.AvatarUrl))
+                        {
+                            <img src="@CurrentChat.Person.AvatarUrl" alt="@CurrentChat.Person.Name" />
+                        }
+                        else
+                        {
+                            <div class="avatar-placeholder">
+                                @CurrentChat.Person.Name[0]
+                            </div>
+                        }
+                        <span class="status-indicator @CurrentChat.Person.Status.ToLower()"></span>
+                    </div>
+                    <div>
+                        <h2>@CurrentChat.Person.Name</h2>
+                        <div class="person-department">@CurrentChat.Person.Department</div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <h2>@CurrentChat.Title</h2>
+            }
+        </div>
+        <div class="chat-messages" id="chat-messages-container">
+            @foreach (var message in CurrentChat.Messages)
+            {
+                <div class="message @(message.IsUser ? "user-message" : "ai-message")">
+                    <div class="message-content">@message.Content</div>
+                    <div class="message-time">@FormatTime(message.Timestamp)</div>
+                </div>
+            }
+        </div>
+        <div class="chat-input">
+            <textarea placeholder="Nachricht eingeben..." 
+                      @bind="newMessage" 
+                      @onkeydown="HandleKeyPress"></textarea>
+            <button @onclick="SendMessage" disabled="@isProcessing">
+                @(isProcessing ? "Sendet..." : "Senden")
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="no-chat-selected">
+            <p>Bitte wählen Sie einen Chat aus oder erstellen Sie einen neuen Chat.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Chat? CurrentChat { get; set; }
+
+    [Parameter]
+    public EventCallback<Chat> OnChatUpdated { get; set; }
+
+    private string newMessage = "";
+    private bool isProcessing = false;
+
+    protected override void OnParametersSet()
+    {
+        Logger.LogInformation("ChatView - OnParametersSet called with chat: {ChatId}", CurrentChat?.Id ?? 0);
+        base.OnParametersSet();
+
+        // Scroll to the bottom of the message list when a chat is loaded or messages change
+        ScrollToBottom();
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending message in chat {ChatId}", CurrentChat.Id);
+        isProcessing = true;
+
+        try
+        {
+            var userMessageContent = newMessage;
+            newMessage = ""; // Clear input field immediately
+            StateHasChanged(); // Update UI immediately
+
+            // Generate embedding for the message
+            var userMessageEmbedding = EmbeddingService.GenerateEmbedding(userMessageContent);
+
+            var messageId = CurrentChat.Messages.Count > 0 ? CurrentChat.Messages.Max(m => m.Id) + 1 : 1;
+            var userMessage = new ChatMessage
+            {
+                Id = messageId,
+                ChatId = CurrentChat.Id,
+                Content = userMessageContent,
+                Timestamp = DateTime.Now,
+                IsUser = true,
+                EmbeddingVector = userMessageEmbedding
+            };
+
+            CurrentChat.Messages.Add(userMessage);
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();
+
+            // Get AI response
+            Logger.LogInformation("Getting AI response");
+            var response = await AiAssistant.GetResponseAsync(userMessageContent);
+            Logger.LogInformation("Received AI response: {Length} characters", response?.Length ?? 0);
+
+            // Generate embedding for the AI response
+            var responseEmbedding = response != null ? 
+                EmbeddingService.GenerateEmbedding(response) : 
+                new float[0]; // Empty embedding if response is null
+
+            // Add AI response
+            messageId++;
+            var aiMessage = new ChatMessage
+            {
+                Id = messageId,
+                ChatId = CurrentChat.Id,
+                Content = response ?? "No response received",
+                Timestamp = DateTime.Now,
+                IsUser = false,
+                EmbeddingVector = responseEmbedding
+            };
+
+            CurrentChat.Messages.Add(aiMessage);
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();
+
+            // Save the updated chat to the database
+            Logger.LogInformation("Saving updated chat to database");
+            await ChatDatabase.SaveChatAsync(CurrentChat);
+
+            // Notify parent component that chat was updated
+            await OnChatUpdated.InvokeAsync(CurrentChat);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in SendMessage: {ErrorMessage}", ex.Message);
+        }
+        finally
+        {
+            isProcessing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string FormatTime(DateTime time)
+    {
+        if (time.Date == DateTime.Now.Date)
+        {
+            return time.ToString("HH:mm");
+        }
+        else if (time.Date == DateTime.Now.Date.AddDays(-1))
+        {
+            return "Gestern";
+        }
+        else
+        {
+            return time.ToString("dd.MM.yyyy");
+        }
+    }
+
+    private void ScrollToBottom()
+    {
+        // This will be implemented with JS interop if needed
+        // For now we'll use CSS to auto-scroll the chat container
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Public method to be called by parent component when chat is updated externally
+    public void ChatUpdated()
+    {
+        InvokeAsync(() => 
+        {
+            StateHasChanged();
+            ScrollToBottom();
+        });
+    }
+}

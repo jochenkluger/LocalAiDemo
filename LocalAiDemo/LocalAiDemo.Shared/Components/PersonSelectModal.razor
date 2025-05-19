@@ -66,10 +66,11 @@
     [Parameter]
     public EventCallback<Person> OnPersonSelected { get; set; }
     
-    [Parameter]
-    public EventCallback OnCancelled { get; set; }
+    [Parameter]    public EventCallback OnCancelled { get; set; }
     
-    public Person? SelectedPerson { get; private set; }    public void Show()
+    public Person? SelectedPerson { get; private set; }
+    
+    public void Show()
     {
         Logger.LogDebug("PersonSelectModal - Show() called");
         _isVisible = true;

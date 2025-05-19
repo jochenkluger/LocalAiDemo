@@ -32,7 +32,7 @@ namespace LocalAiDemo.Shared.Services
 
         public string GetAssistantName()
         {
-            return "Smart Assistant";
+            return "Kluger.net Demo Assistent";
         }
 
         public bool IsOnline()

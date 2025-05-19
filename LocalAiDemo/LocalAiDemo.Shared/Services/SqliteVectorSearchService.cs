@@ -16,10 +16,7 @@ namespace LocalAiDemo.Shared.Services
         {
             try
             {
-                _logger.LogInformation("Attempting to enable SQLite vector search...");
-
-                // Vector search extension filename varies by platform
-                string extensionFileName;
+                _logger.LogInformation("Attempting to enable SQLite vector search...");                // Vector search extension filename varies by platform
 #if WINDOWS
                 string resourceFileName = "vec0.dll"; // File in resources
 #elif ANDROID

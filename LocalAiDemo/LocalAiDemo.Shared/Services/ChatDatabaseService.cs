@@ -45,7 +45,7 @@ namespace LocalAiDemo.Shared.Services
 #if WINDOWS
             var databasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), dbName);
 #else
-            var databasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), dbName);
+            var databasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), dbName);
 #endif
 
             _logger.LogInformation("Database path: {DbPath}", databasePath);
@@ -280,7 +280,7 @@ namespace LocalAiDemo.Shared.Services
                             }
                         }
                     }
-
+                    
                     _logger.LogDebug("After seeding: Found {PersonCount} persons in database", persons.Count);
 
                     // List all persons for debugging
@@ -288,6 +288,139 @@ namespace LocalAiDemo.Shared.Services
                     {
                         _logger.LogDebug("Person in DB: ID={PersonId}, Name={PersonName}, Dept={Department}",
                             person.Id, person.Name, person.Department);
+                    }
+                }
+
+                // Now check for existing chats
+                int chatCount = 0;
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = "SELECT COUNT(*) FROM Chat";
+                    chatCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                    _logger.LogDebug("Database check: Found {ChatCount} existing chats", chatCount);
+                }
+
+                // Seed sample chats if none exist
+                if (chatCount == 0 && persons.Count > 0)
+                {
+                    _logger.LogInformation("Seeding database with sample chat data");
+
+                    // Sample chats with different dates spanning several days
+                    var sampleChats = new List<Chat>
+                    {
+                        // Today's chat with Maria (Sales)
+                        new Chat
+                        {
+                            Title = "Produktberatung Herr Meyer",
+                            CreatedAt = DateTime.Now.Date.AddHours(9), // 9 AM today
+                            PersonId = 1, // Maria Schmidt
+                            IsActive = true,
+                            Messages = new List<ChatMessage>
+                            {
+                                new ChatMessage { Content = "Guten Morgen Herr Meyer! Wie ist Ihr Meeting gestern gelaufen?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(0), IsUser = true },
+                                new ChatMessage { Content = "Guten Morgen Frau Schmidt, das Meeting war sehr produktiv. Wir haben großes Interesse an Ihrer Produktlinie.", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(2), IsUser = false },
+                                new ChatMessage { Content = "Das freut mich zu hören! Wären Sie an einer Produktpräsentation nächste Woche interessiert?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(3), IsUser = true },
+                                new ChatMessage { Content = "Ja, sehr gerne. Wie wäre es mit Dienstag um 14 Uhr?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(5), IsUser = false },
+                                new ChatMessage { Content = "Dienstag 14 Uhr passt perfekt. Ich reserviere auch einen Tisch für 18 Uhr im Restaurant 'Zur Eiche', wenn Sie anschließend Zeit für ein Abendessen haben?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(7), IsUser = true },
+                                new ChatMessage { Content = "Das klingt hervorragend. Ich freue mich auf beides!", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(9), IsUser = false }
+                            }
+                        },
+                        
+                        // Yesterday's chat with Thomas (Engineering)
+                        new Chat
+                        {
+                            Title = "Technische Anfrage Schmidt GmbH",
+                            CreatedAt = DateTime.Now.Date.AddDays(-1).AddHours(14), // 2 PM yesterday
+                            PersonId = 2, // Thomas Müller
+                            IsActive = false,
+                            Messages = new List<ChatMessage>
+                            {
+                                new ChatMessage { Content = "Hallo Herr Fischer, haben Sie die technischen Spezifikationen für die neue Produktserie schon erhalten?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(0), IsUser = true },
+                                new ChatMessage { Content = "Guten Tag Herr Müller, ja, ich habe sie gestern bekommen. Ich habe einige Fragen zur Implementierung.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(1), IsUser = false },
+                                new ChatMessage { Content = "Gerne. Was genau möchten Sie wissen?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(3), IsUser = true },
+                                new ChatMessage { Content = "Wie hoch ist die Skalierbarkeit des Systems? Wir planen eine Erweiterung im nächsten Quartal.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(5), IsUser = false },
+                                new ChatMessage { Content = "Das System ist für bis zu 500 Benutzer ausgelegt. Wir könnten das bei einem Mittagessen am Montag näher besprechen?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(7), IsUser = true },
+                                new ChatMessage { Content = "Montag Mittag klingt gut. Haben Sie einen Restaurantvorschlag?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(9), IsUser = false },
+                                new ChatMessage { Content = "Das 'Bella Italia' bietet einen ruhigen Besprechungsraum. Ich reserviere für 12:30 Uhr.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(11), IsUser = true }
+                            }
+                        },
+                        
+                        // Chat from 3 days ago with Julia (Marketing)
+                        new Chat
+                        {
+                            Title = "Produkteinführung Herbstkampagne",
+                            CreatedAt = DateTime.Now.Date.AddDays(-3).AddHours(11), // 11 AM three days ago
+                            PersonId = 3, // Julia Weber
+                            IsActive = false,
+                            Messages = new List<ChatMessage>
+                            {
+                                new ChatMessage { Content = "Frau Schulz, haben Sie Zeit, über die Marketingstrategie für unsere Herbstprodukte zu sprechen?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(0), IsUser = true },
+                                new ChatMessage { Content = "Natürlich, Frau Weber. Haben Sie schon einen konkreten Ansatz?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(2), IsUser = false },
+                                new ChatMessage { Content = "Ich schlage eine Vorstellung bei einem VIP-Abendessen mit unseren Top-10-Kunden vor.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(5), IsUser = true },
+                                new ChatMessage { Content = "Ausgezeichnete Idee! Welche Location schwebt Ihnen vor?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(7), IsUser = false },
+                                new ChatMessage { Content = "Das Grand Hotel hat einen exklusiven Saal mit Showbühne. Perfekt für die Produktpräsentation und anschließendes Dinner.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(9), IsUser = true },
+                                new ChatMessage { Content = "Das klingt perfekt. Lassen Sie uns morgen bei einem Kaffee die Details besprechen.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(12), IsUser = false }
+                            }
+                        },
+                        
+                        // Chat from a week ago with Michael (Support)
+                        new Chat
+                        {
+                            Title = "Termin mit Wagner & Co.",
+                            CreatedAt = DateTime.Now.Date.AddDays(-7).AddHours(16), // 4 PM a week ago
+                            PersonId = 4, // Michael Wagner
+                            IsActive = false,
+                            Messages = new List<ChatMessage>
+                            {
+                                new ChatMessage { Content = "Sehr geehrter Herr Becker, haben Sie nächste Woche Zeit für ein Mittagessen, um die Vertragsverlängerung zu besprechen?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(0), IsUser = true },
+                                new ChatMessage { Content = "Guten Tag Herr Wagner. Ja, Mittwoch oder Donnerstag würde mir passen.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(5), IsUser = false },
+                                new ChatMessage { Content = "Perfekt, wie wäre Donnerstag 13 Uhr im 'Steakhouse am Markt'?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(10), IsUser = true },
+                                new ChatMessage { Content = "Das passt mir gut. Werden Sie auch die neuen Preismodelle mitbringen?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(15), IsUser = false },
+                                new ChatMessage { Content = "Ja, ich bereite alle Unterlagen vor und bringe auch Muster der neuen Premium-Produktlinie mit.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(20), IsUser = true },
+                                new ChatMessage { Content = "Hervorragend. Ich freue mich auf unser Treffen und das gemeinsame Mittagessen.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(25), IsUser = false }
+                            }
+                        },
+                        
+                        // Chat from two weeks ago with Anna (Management)
+                        new Chat
+                        {
+                            Title = "Quartalsplanung mit Hauptkunden",
+                            CreatedAt = DateTime.Now.Date.AddDays(-14).AddHours(10), // 10 AM two weeks ago
+                            PersonId = 5, // Anna Fischer
+                            IsActive = false,
+                            Messages = new List<ChatMessage>
+                            {
+                                new ChatMessage { Content = "Guten Morgen Frau Meier, hätten Sie Zeit für ein Abendessen am Donnerstag, um unsere Strategie für das kommende Quartal zu besprechen?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(0), IsUser = true },
+                                new ChatMessage { Content = "Guten Morgen Frau Fischer. Donnerstag klingt gut, welches Restaurant schlagen Sie vor?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(5), IsUser = false },
+                                new ChatMessage { Content = "Ich würde das 'Seeblick' vorschlagen. Die haben einen separaten Raum für Geschäftsdinner mit diskreter Atmosphäre.", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(7), IsUser = true },
+                                new ChatMessage { Content = "Ausgezeichnete Wahl. Passt 19 Uhr für Sie?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(10), IsUser = false },
+                                new ChatMessage { Content = "19 Uhr ist perfekt. Ich freue mich sehr, dass Sie Zeit haben. Soll ich die neuen Produktmuster mitbringen?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(12), IsUser = true },
+                                new ChatMessage { Content = "Ja, bitte. Ich bin besonders an der Premium-Serie interessiert, die Sie letzte Woche erwähnt hatten.", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(15), IsUser = false },
+                                new ChatMessage { Content = "Wunderbar, ich werde alles vorbereiten. Bis Donnerstag!", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(17), IsUser = true }
+                            }
+                        }
+                    };
+
+                    // Save each chat to the database
+                    foreach (var chat in sampleChats)
+                    {
+                        try
+                        {
+                            int chatId = await SaveChatAsync(chat);
+                            _logger.LogDebug("Added sample chat: {ChatTitle} with ID {ChatId}", chat.Title, chatId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to add sample chat {ChatTitle}: {ErrorMessage}", chat.Title, ex.Message);
+                        }
+                    }
+
+                    // Verify chats were added
+                    using (var command = _databaseConnection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT COUNT(*) FROM Chat";
+                        chatCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                        _logger.LogDebug("After seeding: Found {ChatCount} chats in database", chatCount);
                     }
                 }
             }

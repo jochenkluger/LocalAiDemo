@@ -198,4 +198,19 @@
             ScrollToBottom();
         });
     }
+
+    // Method to send a message from an external source (like speech recognition)
+    public async Task SendMessageExternally(string messageContent)
+    {
+        if (string.IsNullOrWhiteSpace(messageContent) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending external message in chat {ChatId}: {Message}", CurrentChat.Id, messageContent);
+        
+        // Store the message temporarily
+        newMessage = messageContent;
+        
+        // Call the regular send method
+        await SendMessage();
+    }
 }

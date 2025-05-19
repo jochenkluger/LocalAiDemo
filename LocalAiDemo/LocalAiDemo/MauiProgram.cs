@@ -21,15 +21,15 @@ public static class MauiProgram
         // Add device-specific services used by the LocalAiDemo.Shared project
         builder.Services.AddSingleton<IFormFactor, FormFactor>();
         // Register our custom services        
-        builder.Services.AddSingleton<IAiAssistantService, AiAssistantService>();
-        builder.Services.AddSingleton<IMeasurementService, MeasurementService>();
+        builder.Services.AddSingleton<IAiAssistantService, AiAssistantService>();        builder.Services.AddSingleton<IMeasurementService, MeasurementService>();
         builder.Services.AddSingleton<IEmbeddingService, EmbeddingService>();
 
         // Configure SQLite for the application
-        ConfigureSqlite(builder);
-
-        builder.Services.AddSingleton<IChatDatabaseService, ChatDatabaseService>();
+        ConfigureSqlite(builder);        builder.Services.AddSingleton<IChatDatabaseService, ChatDatabaseService>();
         builder.Services.AddSingleton<IChatService, ChatService>();
+        
+        // Note: TTS functionality has been simplified and moved directly to the components
+        // that need it, using JSInterop directly instead of service registration
 
         // Configure logging
         builder.Logging.SetMinimumLevel(LogLevel.Debug);

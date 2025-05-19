@@ -82,10 +82,15 @@
                         </div>
                     }
                 </div>
-            </div>            <div class="assistant-actions">
+            </div>
+            <div class="assistant-actions">
                 <button id="speechButton" class="action-button voice-record-button @(isRecording ? "recording" : "")" 
                         @onmousedown="StartRecording" @onmouseup="StopRecording" @onmouseleave="StopRecording">
                     <i class="bi bi-mic"></i> @(isRecording ? "Aufnahme läuft..." : "Sprechen (Halten)")
+                </button>
+                
+                <button class="action-button tts-settings-button @(isSpeaking ? "speaking" : "")">
+                    <i class="bi bi-volume-up"></i> TTS
                 </button>
             </div>
         </div>
@@ -157,13 +162,14 @@
     public IJSRuntime JSRuntime { 
         get => jsRuntime ?? throw new InvalidOperationException("JSRuntime was not initialized");
         set => jsRuntime = value;
-    }    protected override async Task OnAfterRenderAsync(bool firstRender)
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             try
             {
-                // Speech Recognition initialisieren
                 Logger.LogInformation("Loading speech recognition script");
                 await JSRuntime.InvokeVoidAsync("eval", 
                     "if (!document.getElementById('speech-recognition-js')) {" +
@@ -176,140 +182,8 @@
                     "  document.body.appendChild(script);" +
                     "}");
                 
-                // TTS-Funktionen direkt definieren falls das Laden des Skripts fehlschlägt
-                Logger.LogInformation("Defining inline TTS functions");
-                await JSRuntimeForTts.InvokeVoidAsync("eval", @"
-                    // Definiere TTS-Funktionen direkt im Window-Objekt
-                    window.speechSynthesis = window.speechSynthesis || {};
-                    window.ttsVoices = [];
-                    window.currentUtterance = null;
-
-                    // TTS-Initialisierungsfunktion
-                    window.initBrowserTts = function() {
-                        try {
-                            if ('speechSynthesis' in window) {
-                                // Abrufen der verfügbaren Stimmen
-                                window.ttsVoices = window.speechSynthesis.getVoices();
-                                
-                                // In Chrome werden die Stimmen asynchron geladen
-                                if (window.ttsVoices.length === 0) {
-                                    window.speechSynthesis.addEventListener('voiceschanged', function() {
-                                        window.ttsVoices = window.speechSynthesis.getVoices();
-                                        console.log('TTS: Geladen ' + window.ttsVoices.length + ' Stimmen');
-                                    });
-                                } else {
-                                    console.log('TTS: Geladen ' + window.ttsVoices.length + ' Stimmen');
-                                }
-                                
-                                console.log('Browser TTS erfolgreich initialisiert');
-                                return true;
-                            } else {
-                                console.error('Keine Browser TTS-Unterstützung verfügbar');
-                                return false;
-                            }
-                        } catch (error) {
-                            console.error('Fehler bei der Initialisierung von Browser TTS:', error);
-                            return false;
-                        }
-                    };
-
-                    // Text vorlesen Funktion
-                    window.speakText = function(text) {
-                        try {
-                            if (!('speechSynthesis' in window)) {
-                                console.error('TTS ist nicht verfügbar');
-                                return false;
-                            }
-                            
-                            // Stoppe aktuelle Sprache, falls vorhanden
-                            if (window.currentUtterance) {
-                                window.stopSpeaking();
-                            }
-                            
-                            // Erstelle neue Äußerung
-                            var utterance = new SpeechSynthesisUtterance(text);
-                            window.currentUtterance = utterance;
-                            
-                            // Finde deutsche Stimme, falls verfügbar
-                            var voices = window.speechSynthesis.getVoices();
-                            var germanVoice = voices.find(function(voice) {
-                                return voice.lang.startsWith('de') && voice.localService;
-                            });
-                            
-                            // Alternativ verwende die erste deutsche Stimme
-                            var anyGermanVoice = voices.find(function(voice) {
-                                return voice.lang.startsWith('de');
-                            });
-                            
-                            // Setze Stimme, wenn verfügbar
-                            if (germanVoice) {
-                                utterance.voice = germanVoice;
-                                console.log('TTS: Verwende lokale deutsche Stimme: ' + germanVoice.name);
-                            } else if (anyGermanVoice) {
-                                utterance.voice = anyGermanVoice;
-                                console.log('TTS: Verwende deutsche Stimme: ' + anyGermanVoice.name);
-                            } else {
-                                console.log('TTS: Keine deutsche Stimme gefunden, verwende Standard-Stimme');
-                            }
-                            
-                            // Setze die Sprache auf Deutsch
-                            utterance.lang = 'de-DE';
-                            
-                            // Setze Ereignisbehandlung
-                            utterance.onend = function() {
-                                console.log('TTS: Sprechen beendet');
-                                window.currentUtterance = null;
-                            };
-                            
-                            utterance.onerror = function(event) {
-                                console.error('TTS Fehler:', event.error);
-                                window.currentUtterance = null;
-                            };
-                            
-                            // Starte das Sprechen
-                            window.speechSynthesis.speak(utterance);
-                            console.log('TTS: Spreche Text: ' + text);
-                            
-                            return true;
-                        } catch (error) {
-                            console.error('Fehler beim Sprechen:', error);
-                            return false;
-                        }
-                    };
-
-                    // Stoppe die Sprachausgabe
-                    window.stopSpeaking = function() {
-                        try {
-                            if (window.speechSynthesis) {
-                                window.speechSynthesis.cancel();
-                                window.currentUtterance = null;
-                                console.log('TTS: Sprachausgabe gestoppt');
-                                return true;
-                            }
-                        } catch (error) {
-                            console.error('Fehler beim Stoppen der Sprachausgabe:', error);
-                        }
-                        return false;
-                    };
-                ");
-                
-                // Auch den externen TTS-Script laden (als Backup)
-                Logger.LogInformation("Loading browser TTS script as backup");
-                await JSRuntimeForTts.InvokeVoidAsync("eval", 
-                    "if (!document.getElementById('browser-tts-js')) {" +
-                    "  var script = document.createElement('script');" +
-                    "  script.id = 'browser-tts-js';" +
-                    "  script.src = '_content/LocalAiDemo.Shared/browser-tts.js';" +
-                    "  script.async = true;" +
-                    "  script.onload = function() { " +
-                    "    console.log('Browser TTS script loaded successfully'); " +
-                    "  };" +
-                    "  script.onerror = function() { console.error('Failed to load Browser TTS script'); };" +
-                    "  document.body.appendChild(script);" +
-                    "}");
-                
                 // Short delay to ensure script is loaded
-                await Task.Delay(1000);
+                await Task.Delay(500);
                 
                 // Create our object reference
                 objRef = DotNetObjectReference.Create(this);
@@ -318,25 +192,10 @@
                 Logger.LogInformation("Initializing speech recognition");
                 await JSRuntime.InvokeVoidAsync("initSpeechRecognition", objRef);
                 Logger.LogInformation("Speech recognition initialized");
-                
-                // TTS direkt initialisieren
-                try {
-                    Logger.LogInformation("Explicitly initializing browser TTS");
-                    await JSRuntimeForTts.InvokeVoidAsync("initBrowserTts");
-                    Logger.LogInformation("Browser TTS initialized");
-                    
-                    // Test, ob speakText definiert ist
-                    var speakTextDefined = await JSRuntimeForTts.InvokeAsync<bool>("eval", 
-                        "typeof window.speakText === 'function'");
-                    Logger.LogInformation("speakText function is " + (speakTextDefined ? "defined" : "NOT defined"));
-                }
-                catch (Exception ex) {
-                    Logger.LogError(ex, "Error initializing Browser TTS: {ErrorMessage}", ex.Message);
-                }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error initializing scripts: {ErrorMessage}", ex.Message);
+                Logger.LogError(ex, "Error initializing speech recognition: {ErrorMessage}", ex.Message);
             }
         }
     }
@@ -423,140 +282,70 @@
         {
             Logger.LogError(ex, "Fehler bei der Verarbeitung der erkannten Sprache: {ErrorMessage}", ex.Message);
         }
-    }    
-      private async Task SpeakAssistantResponse(string response)
+    }
+    
+    private async Task SpeakAssistantResponse(string response)
+    {
+        await SpeakWithTts(response);
+    }
+    
+    private async Task SpeakWithTts(string text)
     {
         try
         {
-            Logger.LogInformation("Spreche Assistenten-Antwort mit TTS: {ResponseLength} Zeichen", response.Length);
-            
             // UI-Status aktualisieren
             isSpeaking = true;
             StateHasChanged();
             
             if (JSRuntimeForTts != null)
             {
-                try
-                {
-                    // Prüfen, ob speakText definiert ist
-                    var speakTextDefined = await JSRuntimeForTts.InvokeAsync<bool>("eval", "typeof window.speakText === 'function'");
-                    
-                    if (speakTextDefined)
-                    {
-                        // speakText ist definiert, verwende es
-                        await JSRuntimeForTts.InvokeVoidAsync("speakText", response);
-                        Logger.LogInformation("TTS erfolgreich gestartet für {Length} Zeichen", response.Length);
-                    }
-                    else
-                    {
-                        // Falls speakText nicht definiert ist, versuche direkt die Web Speech API zu verwenden
-                        Logger.LogWarning("speakText nicht definiert, verwende direkt die Web Speech API");
-                        await JSRuntimeForTts.InvokeVoidAsync("eval", @"
-                            try {
-                                // Direkte Verwendung der Web Speech API
-                                if ('speechSynthesis' in window) {
-                                    // Stoppe bisherige Sprachausgabe
-                                    window.speechSynthesis.cancel();
-                                    
-                                    // Erstelle neue Äußerung
-                                    var utterance = new SpeechSynthesisUtterance('" + response.Replace("'", "\\'").Replace("\n", " ") + @"');
-                                    utterance.lang = 'de-DE';
-                                    
-                                    // Starte das Sprechen
-                                    window.speechSynthesis.speak(utterance);
-                                    console.log('Direkte TTS-Ausgabe gestartet');
-                                } else {
-                                    console.error('Web Speech API nicht verfügbar');
-                                }
-                            } catch (error) {
-                                console.error('Fehler bei direkter TTS-Ausgabe:', error);
-                            }
-                        ");
-                        Logger.LogInformation("Direkte TTS-Ausgabe versucht");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Bei Fehler letzte Fallback-Methode versuchen
-                    Logger.LogWarning("TTS-Fehler, versuche letzte Fallback-Methode: {Error}", ex.Message);
-                    
-                    try {
-                        // Letzte Fallback-Methode: Direkte Definition und Ausführung
-                        await JSRuntimeForTts.InvokeVoidAsync("eval", @"
-                            try {
-                                if ('speechSynthesis' in window) {
-                                    window.speechSynthesis.cancel();
-                                    var u = new SpeechSynthesisUtterance('" + response.Replace("'", "\\'").Replace("\n", " ") + @"');
-                                    u.lang = 'de-DE';
-                                    window.speechSynthesis.speak(u);
-                                    console.log('Fallback TTS ausgeführt');
-                                }
-                            } catch (e) { 
-                                console.error('Fallback TTS fehlgeschlagen:', e); 
-                            }
-                        ");
-                        Logger.LogInformation("Fallback TTS-Methode verwendet");
-                    }
-                    catch (Exception innerEx) {
-                        Logger.LogError(innerEx, "Auch Fallback TTS fehlgeschlagen: {Error}", innerEx.Message);
-                    }
-                }
+                // Lade das Browser-TTS-Skript, falls noch nicht geladen
+                await JSRuntimeForTts.InvokeVoidAsync("eval", 
+                    "if (!document.getElementById('browser-tts-js')) {" +
+                    "  var script = document.createElement('script');" +
+                    "  script.id = 'browser-tts-js';" +
+                    "  script.src = '_content/LocalAiDemo.Shared/browser-tts.js';" +
+                    "  script.async = true;" +
+                    "  document.body.appendChild(script);" +
+                    "}");
+                
+                // Kurze Verzögerung, um sicherzustellen, dass das Skript geladen wurde
+                await Task.Delay(500);
+                
+                // Initialisiere TTS falls notwendig
+                await JSRuntimeForTts.InvokeVoidAsync("initBrowserTts");
+                
+                // Spiele den Text ab
+                await JSRuntimeForTts.InvokeVoidAsync("speakText", text);
+                
+                Logger.LogInformation("Text wird mit Browser TTS gesprochen: {Text}", text);
             }
             else
             {
                 Logger.LogWarning("JSRuntime nicht verfügbar für TTS");
             }
             
-            // UI-Status zurücksetzen (mit Verzögerung)
-            await Task.Delay(Math.Min(3000, response.Length * 40)); // ~40ms pro Zeichen, max 3 Sekunden
+            // UI-Status zurücksetzen (mit Verzögerung für kurze Texte)
+            await Task.Delay(1000);
             isSpeaking = false;
             StateHasChanged();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Fehler beim Sprechen der Assistenten-Antwort: {ErrorMessage}", ex.Message);
+            // Bei Fehler den Status zurücksetzen
             isSpeaking = false;
             StateHasChanged();
+            Logger.LogError(ex, "Fehler beim Sprechen mit TTS: {ErrorMessage}", ex.Message);
         }
-    }    private async Task StopTts()
+    }
+    
+    private async Task StopTts()
     {
         try
         {
             if (JSRuntimeForTts != null && isSpeaking)
             {
-                try
-                {
-                    // Prüfen, ob stopSpeaking definiert ist
-                    var stopSpeakingDefined = await JSRuntimeForTts.InvokeAsync<bool>("eval", "typeof window.stopSpeaking === 'function'");
-                    
-                    if (stopSpeakingDefined)
-                    {
-                        // stopSpeaking ist definiert, verwende es
-                        await JSRuntimeForTts.InvokeVoidAsync("stopSpeaking");
-                    }
-                    else
-                    {
-                        // Direkter Aufruf der Web Speech API
-                        await JSRuntimeForTts.InvokeVoidAsync("eval", @"
-                            try {
-                                if ('speechSynthesis' in window) {
-                                    window.speechSynthesis.cancel();
-                                    console.log('Sprachausgabe direkt gestoppt');
-                                }
-                            } catch (e) { 
-                                console.error('Fehler beim direkten Stoppen der Sprachausgabe:', e); 
-                            }
-                        ");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning("Fehler beim Stoppen der TTS über JS: {Error}, versuche Fallback", ex.Message);
-                    
-                    // Fallback für das Stoppen
-                    await JSRuntimeForTts.InvokeVoidAsync("eval", "if('speechSynthesis' in window) window.speechSynthesis.cancel();");
-                }
-                
+                await JSRuntimeForTts.InvokeVoidAsync("stopSpeaking");
                 isSpeaking = false;
                 StateHasChanged();
                 Logger.LogInformation("TTS-Ausgabe gestoppt");

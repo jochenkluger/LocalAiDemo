@@ -11,13 +11,13 @@ namespace LocalAiDemo.Services
     using LocalAiDemo.Shared.Services;
     using Windows.Media.SpeechSynthesis;
     using Windows.Media.Playback;
+    using Windows.Media.Core;
     using Windows.Storage.Streams;
-    
     public class WindowsTtsProvider : IPlatformTts, IDisposable
     {
         private readonly ILogger<WindowsTtsProvider> _logger;
-        private readonly SpeechSynthesizer _synthesizer;
-        private readonly MediaPlayer _mediaPlayer;
+        private SpeechSynthesizer? _synthesizer;
+        private MediaPlayer? _mediaPlayer;
         private bool _isAvailable;
         
         public WindowsTtsProvider(ILogger<WindowsTtsProvider> logger)
@@ -49,11 +49,9 @@ namespace LocalAiDemo.Services
                 _logger.LogError(ex, "Fehler bei der Initialisierung von Windows TTS");
                 _isAvailable = false;
             }
-        }
-        
-        public async Task SpeakAsync(string text)
+        }        public async Task SpeakAsync(string text)
         {
-            if (!_isAvailable)
+            if (!_isAvailable || _synthesizer == null || _mediaPlayer == null)
             {
                 _logger.LogWarning("Windows TTS ist nicht verfügbar");
                 return;
@@ -101,13 +99,21 @@ namespace LocalAiDemo.Services
         {
             return _isAvailable;
         }
-        
-        public void Dispose()
+          public void Dispose()
         {
             try
             {
-                _mediaPlayer?.Dispose();
-                _synthesizer?.Dispose();
+                if (_mediaPlayer != null)
+                {
+                    _mediaPlayer.Dispose();
+                    _mediaPlayer = null;
+                }
+                
+                if (_synthesizer != null)
+                {
+                    _synthesizer.Dispose();
+                    _synthesizer = null;
+                }
             }
             catch (Exception ex)
             {

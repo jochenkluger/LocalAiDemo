@@ -409,13 +409,7 @@
                 
                 // Spreche die Antwort mit TTS
                 await SpeakAssistantResponse(assistantResponse);
-                
-                // Wenn auch ein regulärer Chat ausgewählt ist, senden wir die Nachricht auch dorthin
-                if (selectedChat != null && chatViewComponent != null)
-                {
-                    await chatViewComponent.SendMessageExternally(recordedText);
-                }
-                
+
                 // UI aktualisieren
                 StateHasChanged();
             }

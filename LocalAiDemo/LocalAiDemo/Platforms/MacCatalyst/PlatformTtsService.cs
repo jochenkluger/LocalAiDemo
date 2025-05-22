@@ -12,6 +12,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
         private readonly ILogger<PlatformTtsService> _logger;
         private AVSpeechSynthesizer _speechSynthesizer;
         private bool _isAvailable;
+        private NSObject _notificationObserver;
         
         public PlatformTtsService(ILogger<PlatformTtsService> logger)
         {
@@ -46,6 +47,13 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 // Stop current playback
                 await StopSpeakingAsync();
                 
+                // Remove previous observer if exists
+                if (_notificationObserver != null)
+                {
+                    NSNotificationCenter.DefaultCenter.RemoveObserver(_notificationObserver);
+                    _notificationObserver = null;
+                }
+                
                 // Create utterance with German language
                 var speechUtterance = new AVSpeechUtterance(text)
                 {
@@ -59,15 +67,20 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 if (speechUtterance.Voice == null)
                 {
                     _logger.LogWarning("No German voice found, using default voice");
-                    speechUtterance.Voice = AVSpeechSynthesisVoice.CurrentLanguageVoice;
+                    // Get a voice from the available voices
+                    var availableVoices = AVSpeechSynthesisVoice.GetSpeechVoices();
+                    if (availableVoices != null && availableVoices.Length > 0)
+                    {
+                        speechUtterance.Voice = availableVoices[0];
+                    }
                 }
                 
                 // Start speech synthesis
                 var taskCompletionSource = new TaskCompletionSource<bool>();
                 
                 // Event handling for speech output end
-                NSNotificationCenter.DefaultCenter.AddObserver(
-                    AVSpeechSynthesizer.DidFinishSpeechUtteranceNotification,
+                _notificationObserver = NSNotificationCenter.DefaultCenter.AddObserver(
+                    new NSString("AVSpeechSynthesizerDidFinishSpeechUtteranceNotification"),
                     notification => taskCompletionSource.TrySetResult(true));
                 
                 // Start speech synthesis
@@ -113,8 +126,12 @@ namespace LocalAiDemo.Platforms.MacCatalyst
         {
             try
             {
-                // Remove observers
-                NSNotificationCenter.DefaultCenter.RemoveObserver(this);
+                // Remove observer
+                if (_notificationObserver != null)
+                {
+                    NSNotificationCenter.DefaultCenter.RemoveObserver(_notificationObserver);
+                    _notificationObserver = null;
+                }
                 
                 // Clean up resources
                 if (_speechSynthesizer != null)

@@ -6,6 +6,7 @@ using LocalAiDemo.Shared.Services;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
+using TextToSpeech = Android.Speech.Tts.TextToSpeech;
 
 namespace LocalAiDemo.Platforms.Android
 {
@@ -14,19 +15,20 @@ namespace LocalAiDemo.Platforms.Android
         private readonly ILogger<PlatformTtsService> _logger;
         private TextToSpeech _tts;
         private bool _isInitialized;
-        private Locale _germanLocale;
+        private Java.Util.Locale _germanLocale;
         private readonly Handler _handler;
 
         public PlatformTtsService(ILogger<PlatformTtsService> logger)
         {
             _logger = logger;
             _handler = new Handler(Looper.MainLooper);
-            
+
             try
             {
                 // Initialize TTS on the main thread
-                _handler.Post(() => {
-                    _germanLocale = new Locale("de", "DE");
+                _handler.Post(() =>
+                {
+                    _germanLocale = new Java.Util.Locale("de", "DE");
                     _tts = new TextToSpeech(global::Android.App.Application.Context, this);
                     _logger.LogInformation("Android TTS initialization started");
                 });
@@ -45,20 +47,21 @@ namespace LocalAiDemo.Platforms.Android
                 try
                 {
                     _isInitialized = true;
-                    
+
                     // Set German language if available
                     var langResult = _tts.SetLanguage(_germanLocale);
-                    if (langResult == LanguageAvailability.Available)
+                    if (langResult == LanguageAvailableResult.Available)
                     {
                         _logger.LogInformation("Android TTS successfully initialized with German language");
                     }
                     else
                     {
-                        _logger.LogWarning("German language for Android TTS not available. Status: {Status}", langResult);
+                        _logger.LogWarning("German language for Android TTS not available. Status: {Status}",
+                            langResult);
                         // Fallback to system language
-                        _tts.SetLanguage(Locale.Default);
+                        _tts.SetLanguage(Java.Util.Locale.Default);
                     }
-                    
+
                     // Set speech rate and pitch
                     _tts.SetSpeechRate(1.0f);
                     _tts.SetPitch(1.0f);
@@ -83,39 +86,40 @@ namespace LocalAiDemo.Platforms.Android
                 _logger.LogWarning("Android TTS is not initialized. Text will not be spoken: {Text}", text);
                 return;
             }
-            
+
             try
             {
                 _logger.LogInformation("Android TTS speaking: {Text}", text);
-                
+
                 // Wait until TTS is available
                 int maxAttempts = 10;
                 int attempts = 0;
-                
+
                 while (!_isInitialized && attempts < maxAttempts)
                 {
                     await Task.Delay(300);
                     attempts++;
                 }
-                
+
                 if (!_isInitialized)
                 {
                     _logger.LogWarning("Android TTS could not be initialized");
                     return;
                 }
-                
+
                 // Execute speech on the main thread
                 var taskCompletionSource = new TaskCompletionSource<bool>();
-                
-                _handler.Post(() => {
+
+                _handler.Post(() =>
+                {
                     try
                     {
                         // Stop any current speech
                         _tts.Stop();
-                        
+
                         // Generate a unique utterance ID
                         string utteranceId = Guid.NewGuid().ToString();
-                        
+
                         // For API level 21 and higher, we can use Bundle parameters
                         if (Build.VERSION.SdkInt >= BuildVersionCodes.Lollipop)
                         {
@@ -130,12 +134,12 @@ namespace LocalAiDemo.Platforms.Android
                             {
                                 { TextToSpeech.Engine.KeyParamUtteranceId, utteranceId }
                             };
-                            
-                            #pragma warning disable CS0618 // Type or member is obsolete
+
+#pragma warning disable CS0618 // Type or member is obsolete
                             _tts.Speak(text, QueueMode.Flush, parameters);
-                            #pragma warning restore CS0618
+#pragma warning restore CS0618
                         }
-                        
+
                         taskCompletionSource.SetResult(true);
                     }
                     catch (Exception ex)
@@ -144,7 +148,7 @@ namespace LocalAiDemo.Platforms.Android
                         taskCompletionSource.SetException(ex);
                     }
                 });
-                
+
                 await taskCompletionSource.Task;
             }
             catch (Exception ex)
@@ -159,21 +163,19 @@ namespace LocalAiDemo.Platforms.Android
             {
                 return Task.CompletedTask;
             }
-            
+
             try
             {
                 _logger.LogInformation("Stopping Android TTS");
-                
+
                 // Execute stop on the main thread
-                _handler.Post(() => {
-                    _tts?.Stop();
-                });
+                _handler.Post(() => { _tts?.Stop(); });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error stopping Android TTS");
             }
-            
+
             return Task.CompletedTask;
         }
 
@@ -193,7 +195,7 @@ namespace LocalAiDemo.Platforms.Android
                     _tts.Dispose();
                     _tts = null;
                 }
-                
+
                 _handler?.Dispose();
             }
             catch (Exception ex)

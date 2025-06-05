@@ -12,6 +12,7 @@
 @inject IEmbeddingService EmbeddingService
 @inject ILogger<Home> Logger
 @inject IJSRuntime JSRuntimeForTts 
+@inject ITextGenerationService TextGenerationService
 @inject ITtsService TtsService
 @implements IDisposable
 
@@ -67,28 +68,53 @@
         <ChatView 
             @ref="chatViewComponent" 
             CurrentChat="@selectedChat" 
-            OnChatUpdated="@HandleChatUpdated" />
-    </div>
+            OnChatUpdated="@HandleChatUpdated" />    </div>
     <!-- Right Column - AI Assistant -->
     <div class="ai-assistant">
         <h2>KI-Assistent</h2>
         <div class="assistant-content">
-            <div class="assistant-chat-history">
-                <div class="assistant-messages">
-                    @foreach (var message in assistantChat.Messages)
-                    {
-                        <div class="message-preview @(message.IsUser ? "user" : "ai")">
-                            <div class="message-content">@message.Content</div>
-                            <div class="message-time">@FormatTime(message.Timestamp)</div>
+            @if (isTextGenerationInitializing)
+            {
+                <div class="ai-initialization-progress">
+                    <div class="progress-header">
+                        <i class="bi bi-cpu"></i>
+                        <span>@textGenerationStatus</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-ai">
+                            <div class="progress-fill-ai" style="width: @textGenerationProgress%"></div>
                         </div>
-                    }
+                        <span class="progress-percentage">@Math.Round(textGenerationProgress, 1)%</span>
+                    </div>
                 </div>
-            </div>            <div class="assistant-actions">
-                <button id="speechButton" class="action-button voice-record-button @(isRecording ? "recording" : "")" 
-                        @onmousedown="StartRecording" @onmouseup="StopRecording" @onmouseleave="StopRecording">
-                    <i class="bi bi-mic"></i> @(isRecording ? "Aufnahme läuft..." : "Sprechen (Halten)")
-                </button>
-            </div>
+            }
+            else if (!isTextGenerationInitialized)
+            {
+                <div class="ai-error-state">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span>KI-Modell konnte nicht initialisiert werden</span>
+                </div>
+            }
+            else
+            {
+                <div class="assistant-chat-history">
+                    <div class="assistant-messages">
+                        @foreach (var message in assistantChat.Messages)
+                        {
+                            <div class="message-preview @(message.IsUser ? "user" : "ai")">
+                                <div class="message-content">@message.Content</div>
+                                <div class="message-time">@FormatTime(message.Timestamp)</div>
+                            </div>
+                        }
+                    </div>
+                </div>            
+                <div class="assistant-actions">
+                    <button id="speechButton" class="action-button voice-record-button @(isRecording ? "recording" : "")" 
+                            @onmousedown="StartRecording" @onmouseup="StopRecording" @onmouseleave="StopRecording">
+                        <i class="bi bi-mic"></i> @(isRecording ? "Aufnahme läuft..." : "Sprechen (Halten)")
+                    </button>
+                </div>
+            }
         </div>
     </div>
 </div>
@@ -145,6 +171,12 @@
     private List<Measurement> measurements = new List<Measurement>();
     private int selectedChatId = 0;
     private Chat? selectedChat => chats.FirstOrDefault(c => c.Id == selectedChatId);  // Keep as computed property for consistency
+    
+    // Text Generation Service Initialisierung
+    private bool isTextGenerationInitialized = false;
+    private bool isTextGenerationInitializing = false;
+    private double textGenerationProgress = 0;
+    private string textGenerationStatus = "";
     
     // Sprachaufnahme-Variablen
     private bool isRecording = false;
@@ -579,6 +611,10 @@
             // Subscribe to measurement updates
             Logger.LogDebug("Subscribing to measurement updates");
             MeasurementService.MeasurementsUpdated += OnMeasurementsUpdated;
+            
+            // Initialize Text Generation Service
+            await InitializeTextGenerationServiceAsync();
+            
             Logger.LogDebug("Home.OnInitializedAsync completed");
         }
         catch (Exception ex)
@@ -951,5 +987,61 @@
         
         // Force UI update
         await InvokeAsync(StateHasChanged);
+    }
+    
+    private async Task InitializeTextGenerationServiceAsync()
+    {
+        try
+        {
+            Logger.LogInformation("Starte Initialisierung des TextGenerationService");
+            isTextGenerationInitializing = true;
+            textGenerationProgress = 0;
+            textGenerationStatus = "Initialisiere KI-Modell";
+            await InvokeAsync(StateHasChanged);
+
+            // Initialisiere das TextGeneration Service mit Progress-Callback
+            await TextGenerationService.InitializeAsync(progress =>
+            {
+                textGenerationProgress = progress;
+                
+                if (progress < 99)
+                {
+                    textGenerationStatus = "Lade KI-Modell";
+                }
+                else
+                {
+                    textGenerationStatus = "Finalisiere Initialisierung";
+                }
+                
+                // UI Update im Hauptthread
+                InvokeAsync(StateHasChanged);
+            });
+
+            // Starte den Chat
+            await TextGenerationService.StartChatAsync(progress =>
+            {
+                textGenerationProgress = 50 + (progress * 0.5); // Start bei 50%, gehe bis 100%
+                textGenerationStatus = "Initialisiere Chat-Engine";
+                
+                // UI Update im Hauptthread
+                InvokeAsync(StateHasChanged);
+            });
+
+            isTextGenerationInitializing = false;
+            isTextGenerationInitialized = true;
+            textGenerationProgress = 100;
+            textGenerationStatus = "KI-Modell bereit";
+            
+            Logger.LogInformation("TextGenerationService erfolgreich initialisiert");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler bei der Initialisierung des TextGenerationService: {ErrorMessage}", ex.Message);
+            isTextGenerationInitializing = false;
+            isTextGenerationInitialized = false;
+            textGenerationStatus = "Fehler bei KI-Initialisierung";
+            await InvokeAsync(StateHasChanged);
+        }
     }
 }

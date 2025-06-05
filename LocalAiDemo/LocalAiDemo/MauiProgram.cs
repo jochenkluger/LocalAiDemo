@@ -1,8 +1,10 @@
 using LocalAiDemo.Services;
 using LocalAiDemo.Shared.Services;
+using LocalAiDemo.Shared.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using System.IO;
 using System.Reflection;
 
@@ -13,30 +15,31 @@ public static class MauiProgram
     public static MauiApp CreateMauiApp()
     {
         var builder = MauiApp.CreateBuilder();
-        
+
         // Add configuration file
         builder.Configuration.AddJsonFile("appsettings.json", optional: true);
-        
+
+        // Configure and register AppConfiguration
+        builder.Services.Configure<AppConfiguration>(builder.Configuration.GetSection("AppConfiguration"));
+
         builder
             .UseMauiApp<App>()
-            .ConfigureFonts(fonts =>
-            {
-                fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-            });
-            
+            .ConfigureFonts(fonts => { fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular"); });
+
         // Add device-specific services used by the LocalAiDemo.Shared project
         builder.Services.AddSingleton<IFormFactor, FormFactor>();
-        
-        // Register our custom services        
-        builder.Services.AddSingleton<IAiAssistantService, AiAssistantService>();        
+
+        // Register our custom services
+        builder.Services.AddSingleton<ITextGenerationService, LocalTextGenerationService>();
+        builder.Services.AddSingleton<IAiAssistantService, AiAssistantService>();
         builder.Services.AddSingleton<IMeasurementService, MeasurementService>();
         builder.Services.AddSingleton<IEmbeddingService, EmbeddingService>();
 
         // Configure SQLite for the application
-        ConfigureSqlite(builder);        
+        ConfigureSqlite(builder);
         builder.Services.AddSingleton<IChatDatabaseService, ChatDatabaseService>();
         builder.Services.AddSingleton<IChatService, ChatService>();
-        
+
         // Register platform-specific TTS services
         RegisterTtsServices(builder);
 
@@ -73,16 +76,18 @@ public static class MauiProgram
             logger.LogError(ex, "Error configuring SQLite: {Message}", ex.Message);
         }
     }
-      private static void RegisterTtsServices(MauiAppBuilder builder)
+
+    private static void RegisterTtsServices(MauiAppBuilder builder)
     {
         try
         {
             var logger = new LoggerFactory().CreateLogger("TtsConfig");
-            
+
             // Get preferred provider from configuration
-            var preferredProvider = builder.Configuration.GetValue<string>("AppSettings:TTS:PreferredProvider") ?? "System";
+            var preferredProvider =
+                builder.Configuration.GetValue<string>("AppSettings:TTS:PreferredProvider") ?? "System";
             logger.LogInformation("Using TTS provider from configuration: {Provider}", preferredProvider);
-            
+
             // Register platform-specific implementation
 #if WINDOWS
             // Use the platform-specific Windows implementation
@@ -119,7 +124,7 @@ public static class MauiProgram
                 builder.Services.AddSingleton<ITtsService, BrowserTtsService>();
                 logger.LogInformation("Using Browser TTS provider as configured in appsettings.json");
             }
-            
+
             logger.LogInformation("TTS services registered successfully");
         }
         catch (Exception ex)

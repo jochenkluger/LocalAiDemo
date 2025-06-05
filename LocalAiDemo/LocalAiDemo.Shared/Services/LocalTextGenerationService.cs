@@ -15,7 +15,7 @@ using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace LocalAiDemo.Shared.Services
 {
-    public class LocalTextGenerationService
+    public class LocalTextGenerationService : ITextGenerationService
     {
         private IOptions<AppConfiguration> _appConfiguration;
         private string _appDataPath;
@@ -23,8 +23,8 @@ namespace LocalAiDemo.Shared.Services
         private LLamaWeights _model;
         private IChatClient _chatClient;
 
-        private List<ChatMessage> _chatHistory =
-            new List<ChatMessage>(); //https://learn.microsoft.com/de-de/dotnet/ai/microsoft-extensions-ai
+        //https://learn.microsoft.com/de-de/dotnet/ai/microsoft-extensions-ai
+        private List<ChatMessage> _chatHistory = new List<ChatMessage>();
 
         public LocalTextGenerationService(IOptions<AppConfiguration> config)
         {
@@ -37,7 +37,8 @@ namespace LocalAiDemo.Shared.Services
                 AvailableModels.Models.FirstOrDefault(x => x.Name == _appConfiguration.Value.GenerationProvider);
             if (selectedModel == null)
             {
-                throw new InvalidOperationException("Ausgewähltes Model ist nicht bekannt");
+                throw new InvalidOperationException(
+                    $"Ausgewähltes Model {_appConfiguration.Value.GenerationProvider} ist nicht bekannt");
             }
 
             // Pfad zum ApplicationData-Verzeichnis
@@ -74,7 +75,7 @@ namespace LocalAiDemo.Shared.Services
 
             _chatClient = ex.AsChatClient();
 
-            //TODO: Function calling not implemented in LlamaSharp --> Use SemanticKernel?
+            //TODO: Function calling not implemented in LlamaSharp --> Write own or use SemanticKernel --> https://github.com/SciSharp/LLamaSharp/issues/707
             //IChatClient client = _chatClient
             //    .UseFunctionInvocation()
             //    .Build();

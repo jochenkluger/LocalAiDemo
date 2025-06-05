@@ -16,7 +16,8 @@ namespace LocalAiDemo.Shared.Services
         {
             try
             {
-                _logger.LogInformation("Attempting to enable SQLite vector search...");                // Vector search extension filename varies by platform
+                _logger.LogInformation(
+                    "Attempting to enable SQLite vector search..."); // Vector search extension filename varies by platform
 #if WINDOWS
                 string resourceFileName = "vec0.dll"; // File in resources
 #elif ANDROID
@@ -28,7 +29,8 @@ namespace LocalAiDemo.Shared.Services
 #endif
 
                 // First try to find the extension in the app's directory
-                string extensionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SQLiteExtensions", resourceFileName);
+                string extensionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SQLiteExtensions",
+                    resourceFileName);
 
                 _logger.LogInformation("Looking for sqlite-vec extension at {Path}", extensionPath);
 
@@ -91,7 +93,8 @@ namespace LocalAiDemo.Shared.Services
         {
             try
             {
-                _logger.LogInformation("Extracting resource {ResourceName} to {TargetPath}", resourceFileName, targetPath);
+                _logger.LogInformation("Extracting resource {ResourceName} to {TargetPath}", resourceFileName,
+                    targetPath);
 
                 var assembly = typeof(SqliteVectorSearchService).Assembly;
                 string[] resourceNames = assembly.GetManifestResourceNames();

@@ -1,6 +1,6 @@
 using AVFoundation;
 using Foundation;
-using LocalAiDemo.Shared.Services;
+using LocalAiDemo.Shared.Services.Tts;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;

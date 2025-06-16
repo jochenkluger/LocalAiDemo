@@ -41,6 +41,30 @@ namespace LocalAiDemo.Shared.Models
             ),
 
             new AiModel(
+                "Phi-4 (Q4_K)",
+                "phi-4-Q4_K.gguf",
+                "https://huggingface.co/microsoft/phi-4-gguf/resolve/main/phi-4-Q4_K.gguf?download=true",
+                ExecutionMode.Local,
+                true // Default selected Logic model
+            ),
+
+            new AiModel(
+                "Phi-4-mini-reasoning (Q4_K_XL)",
+                "Phi-4-mini-reasoning-UD-Q4_K_XL.gguf",
+                "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-Q4_K_XL.gguf?download=true",
+                ExecutionMode.Local,
+                true // Default selected Logic model
+            ),
+
+            new AiModel(
+                "Tinyllama german (Q6_K)",
+                "tinyllama-german.Q6_K.gguf",
+                "https://huggingface.co/mradermacher/tinyllama-german-GGUF/resolve/main/tinyllama-german.Q6_K.gguf?download=true",
+                ExecutionMode.Local,
+                true // Default selected Logic model
+            ),
+
+            new AiModel(
                 "OpenAI GPT-4",
                 "",
                 "",

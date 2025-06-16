@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Tts
 {
     /// <summary>
     /// Plattformspezifische Implementierungen werden in der konkreten App implementiert, 
@@ -456,7 +456,7 @@ namespace LocalAiDemo.Shared.Services
     /// <summary>
     /// Default-Implementierung für Plattformen, die nicht explizit unterstützt werden
     /// </summary>
-    public class DefaultPlatformTtsProvider : LocalAiDemo.Shared.Services.IPlatformTts
+    public class DefaultPlatformTtsProvider : IPlatformTts
     {
         private readonly ILogger<DefaultPlatformTtsProvider> _logger;
         

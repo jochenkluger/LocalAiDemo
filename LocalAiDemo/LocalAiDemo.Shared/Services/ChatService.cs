@@ -1,9 +1,9 @@
 using LocalAiDemo.Shared.Models;
+using LocalAiDemo.Shared.Services.Search;
 using Microsoft.Extensions.Logging;
 
 namespace LocalAiDemo.Shared.Services
-{
-    public interface IChatService
+{    public interface IChatService
     {
         Task<Chat> CreateNewChatAsync(Person person);
 
@@ -12,21 +12,37 @@ namespace LocalAiDemo.Shared.Services
         Task<List<Chat>> GetAllChatsAsync();
 
         Task<int> SaveChatAsync(Chat chat);
-    }
 
-    public class ChatService : IChatService
+        /// <summary>
+        /// Adds a new message to a chat and automatically updates segments
+        /// </summary>
+        Task<Chat> AddMessageToChatAsync(int chatId, string content, bool isUser);
+
+        /// <summary>
+        /// Searches for relevant chat segments based on semantic similarity
+        /// </summary>
+        Task<List<ChatSegmentSearchResult>> SearchChatSegmentsAsync(string query, int limit = 10);
+
+        /// <summary>
+        /// Searches for relevant segments within a specific chat
+        /// </summary>
+        Task<List<ChatSegmentSearchResult>> SearchChatSegmentsInChatAsync(int chatId, string query, int limit = 5);
+    }    public class ChatService : IChatService
     {
         private readonly IChatDatabaseService _chatDatabase;
         private readonly IEmbeddingService _embeddingService;
+        private readonly IChatSegmentService _chatSegmentService;
         private readonly ILogger<ChatService> _logger;
 
         public ChatService(
             IChatDatabaseService chatDatabase,
             IEmbeddingService embeddingService,
+            IChatSegmentService chatSegmentService,
             ILogger<ChatService> logger)
         {
             _chatDatabase = chatDatabase;
             _embeddingService = embeddingService;
+            _chatSegmentService = chatSegmentService;
             _logger = logger;
         }
 
@@ -102,6 +118,161 @@ namespace LocalAiDemo.Shared.Services
         {
             _logger.LogDebug("Saving chat with ID: {ChatId}", chat.Id);
             return await _chatDatabase.SaveChatAsync(chat);
+        }
+
+        public async Task<Chat> AddMessageToChatAsync(int chatId, string content, bool isUser)
+        {
+            _logger.LogDebug("Adding message to chat {ChatId}: isUser={IsUser}", chatId, isUser);
+
+            try
+            {
+                var chat = await _chatDatabase.GetChatAsync(chatId);
+                if (chat == null)
+                {
+                    throw new ArgumentException($"Chat with ID {chatId} not found");
+                }
+
+                // Create new message
+                var newMessage = new ChatMessage
+                {
+                    ChatId = chatId,
+                    Content = content,
+                    Timestamp = DateTime.Now,
+                    IsUser = isUser
+                };
+
+                // Generate embedding for the message
+                try
+                {
+                    newMessage.EmbeddingVector = _embeddingService.GenerateEmbedding(content);
+                    _logger.LogDebug("Generated embedding for new message");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to generate embedding for message");
+                }
+
+                // Add message to chat
+                chat.Messages.Add(newMessage);
+
+                // Save chat with new message
+                await _chatDatabase.SaveChatAsync(chat);
+
+                // Update segments in background (don't await to avoid blocking)
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _chatSegmentService.UpdateSegmentsForChatAsync(chatId);
+                        _logger.LogDebug("Updated segments for chat {ChatId} after new message", chatId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to update segments for chat {ChatId}", chatId);
+                    }
+                });
+
+                _logger.LogInformation("Added message to chat {ChatId}", chatId);
+                return chat;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adding message to chat {ChatId}: {ErrorMessage}", chatId, ex.Message);
+                throw;
+            }
+        }
+
+        public async Task<List<ChatSegmentSearchResult>> SearchChatSegmentsAsync(string query, int limit = 10)
+        {
+            _logger.LogDebug("Searching chat segments with query: {Query}", query);
+
+            try
+            {
+                var segmentResults = await _chatSegmentService.FindSimilarSegmentsAsync(query, limit);
+                var searchResults = new List<ChatSegmentSearchResult>();                foreach (var result in segmentResults)
+                {
+                    var chat = await _chatDatabase.GetChatAsync(result.Segment.ChatId);
+                    var person = chat?.Person;
+
+                    searchResults.Add(new ChatSegmentSearchResult
+                    {
+                        Segment = result.Segment,
+                        SimilarityScore = result.Similarity,
+                        Chat = chat,
+                        Person = person,
+                        HighlightedSnippet = CreateHighlightedSnippet(result.Segment.CombinedContent, query)
+                    });
+                }
+
+                _logger.LogInformation("Found {ResultCount} segment results for query: {Query}", 
+                    searchResults.Count, query);
+                return searchResults;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching chat segments: {ErrorMessage}", ex.Message);
+                return new List<ChatSegmentSearchResult>();
+            }
+        }
+
+        public async Task<List<ChatSegmentSearchResult>> SearchChatSegmentsInChatAsync(int chatId, string query, int limit = 5)
+        {
+            _logger.LogDebug("Searching segments in chat {ChatId} with query: {Query}", chatId, query);
+
+            try
+            {
+                var segmentResults = await _chatSegmentService.FindSimilarSegmentsInChatAsync(chatId, query, limit);
+                var searchResults = new List<ChatSegmentSearchResult>();
+
+                var chat = await _chatDatabase.GetChatAsync(chatId);
+                var person = chat?.Person;                foreach (var result in segmentResults)
+                {
+                    searchResults.Add(new ChatSegmentSearchResult
+                    {
+                        Segment = result.Segment,
+                        SimilarityScore = result.Similarity,
+                        Chat = chat,
+                        Person = person,
+                        HighlightedSnippet = CreateHighlightedSnippet(result.Segment.CombinedContent, query)
+                    });
+                }
+
+                _logger.LogInformation("Found {ResultCount} segment results in chat {ChatId} for query: {Query}", 
+                    searchResults.Count, chatId, query);
+                return searchResults;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching segments in chat {ChatId}: {ErrorMessage}", chatId, ex.Message);
+                return new List<ChatSegmentSearchResult>();
+            }
+        }
+
+        private string CreateHighlightedSnippet(string content, string query, int maxLength = 200)
+        {
+            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(query))
+                return content.Length > maxLength ? content.Substring(0, maxLength) + "..." : content;
+
+            var lowerContent = content.ToLower();
+            var lowerQuery = query.ToLower();
+            var index = lowerContent.IndexOf(lowerQuery);
+
+            if (index == -1)
+            {
+                // Query not found, return beginning of content
+                return content.Length > maxLength ? content.Substring(0, maxLength) + "..." : content;
+            }
+
+            // Calculate snippet bounds
+            int start = Math.Max(0, index - 50);
+            int end = Math.Min(content.Length, start + maxLength);
+            
+            var snippet = content.Substring(start, end - start);
+            
+            if (start > 0) snippet = "..." + snippet;
+            if (end < content.Length) snippet = snippet + "...";
+
+            return snippet;
         }
     }
 }

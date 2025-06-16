@@ -1,4 +1,5 @@
 using LocalAiDemo.Shared.Models;
+using LocalAiDemo.Shared.Services.Search;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using SQLite;
@@ -23,7 +24,21 @@ namespace LocalAiDemo.Shared.Services
         Task<int> SavePersonAsync(Person person);
 
         Task<List<Chat>> FindSimilarChatsAsync(float[] embedding, int limit = 5);
+
+        // New: Chat segment methods
+        Task<int> SaveChatSegmentAsync(ChatSegment segment);
+
+        Task<List<ChatSegment>> GetSegmentsForChatAsync(int chatId);
+
+        Task<ChatSegment?> GetChatSegmentAsync(int segmentId);
+
+        Task DeleteChatSegmentAsync(int segmentId);
+
+        Task<List<ChatSegment>> GetAllChatSegmentsAsync();
+
+        Task UpdateChatSegmentAsync(ChatSegment segment);
     }
+
     public class ChatDatabaseService : IChatDatabaseService
     {
         private readonly SqliteConnection _databaseConnection;
@@ -59,8 +74,7 @@ namespace LocalAiDemo.Shared.Services
                 _databaseConnection.Open();
                 _logger.LogInformation("Database connection created successfully");
 
-                // Initialize vector search capabilities
-                // Try to enable vector search if not already enabled
+                // Initialize vector search capabilities Try to enable vector search if not already enabled
                 _logger.LogInformation("Attempting to enable vector search through SqliteVectorSearchService service");
 
                 var enabled = _sqliteVectorSearchService.EnableVectorSearchAsync(_databaseConnection).Result;
@@ -116,9 +130,7 @@ namespace LocalAiDemo.Shared.Services
                         )";
                     await Task.Run(() => command.ExecuteNonQuery());
                     _logger.LogDebug("Chat table created");
-                }
-
-                // For the ChatMessage table
+                }                // For the ChatMessage table
                 using (var command = _databaseConnection.CreateCommand())
                 {
                     command.CommandText = @"
@@ -129,10 +141,34 @@ namespace LocalAiDemo.Shared.Services
                             Timestamp TEXT,
                             IsUser INTEGER,
                             EmbeddingVector BLOB,
-                            FOREIGN KEY(ChatId) REFERENCES Chat(Id)
+                            SegmentId INTEGER,
+                            FOREIGN KEY(ChatId) REFERENCES Chat(Id),
+                            FOREIGN KEY(SegmentId) REFERENCES ChatSegment(Id)
                         )";
                     await Task.Run(() => command.ExecuteNonQuery());
                     _logger.LogDebug("ChatMessage table created");
+                }
+
+                // For the ChatSegment table
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS ChatSegment (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            ChatId INTEGER,
+                            SegmentDate TEXT,
+                            Title TEXT,
+                            CombinedContent TEXT,
+                            EmbeddingVector BLOB,
+                            MessageCount INTEGER,
+                            StartTime TEXT,
+                            EndTime TEXT,
+                            CreatedAt TEXT,
+                            Keywords TEXT,
+                            FOREIGN KEY(ChatId) REFERENCES Chat(Id)
+                        )";
+                    await Task.Run(() => command.ExecuteNonQuery());
+                    _logger.LogDebug("ChatSegment table created");
                 }
 
                 // Create virtual table for vector search if SQLite supports it
@@ -172,6 +208,7 @@ namespace LocalAiDemo.Shared.Services
                 throw; // Rethrow to allow higher levels to handle or log the error
             }
         }
+
         private async Task SeedInitialDataIfNeededAsync()
         {
             try
@@ -280,7 +317,7 @@ namespace LocalAiDemo.Shared.Services
                             }
                         }
                     }
-                    
+
                     _logger.LogDebug("After seeding: Found {PersonCount} persons in database", persons.Count);
 
                     // List all persons for debugging
@@ -325,7 +362,7 @@ namespace LocalAiDemo.Shared.Services
                                 new ChatMessage { Content = "Das klingt hervorragend. Ich freue mich auf beides!", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(9), IsUser = false }
                             }
                         },
-                        
+
                         // Yesterday's chat with Thomas (Engineering)
                         new Chat
                         {
@@ -344,7 +381,7 @@ namespace LocalAiDemo.Shared.Services
                                 new ChatMessage { Content = "Das 'Bella Italia' bietet einen ruhigen Besprechungsraum. Ich reserviere für 12:30 Uhr.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(11), IsUser = true }
                             }
                         },
-                        
+
                         // Chat from 3 days ago with Julia (Marketing)
                         new Chat
                         {
@@ -362,7 +399,7 @@ namespace LocalAiDemo.Shared.Services
                                 new ChatMessage { Content = "Das klingt perfekt. Lassen Sie uns morgen bei einem Kaffee die Details besprechen.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(12), IsUser = false }
                             }
                         },
-                        
+
                         // Chat from a week ago with Michael (Support)
                         new Chat
                         {
@@ -380,7 +417,7 @@ namespace LocalAiDemo.Shared.Services
                                 new ChatMessage { Content = "Hervorragend. Ich freue mich auf unser Treffen und das gemeinsame Mittagessen.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(25), IsUser = false }
                             }
                         },
-                        
+
                         // Chat from two weeks ago with Anna (Management)
                         new Chat
                         {
@@ -730,10 +767,10 @@ namespace LocalAiDemo.Shared.Services
                     {
                         command.CommandText = @"
                             UPDATE Chat
-                            SET Title = @title, 
-                                CreatedAt = @createdAt, 
-                                PersonId = @personId, 
-                                IsActive = @isActive, 
+                            SET Title = @title,
+                                CreatedAt = @createdAt,
+                                PersonId = @personId,
+                                IsActive = @isActive,
                                 EmbeddingVector = @embeddingVector
                             WHERE Id = @id";
 
@@ -851,11 +888,11 @@ namespace LocalAiDemo.Shared.Services
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
-                            UPDATE ChatMessage 
-                            SET Content = @content, 
-                                Timestamp = @timestamp, 
-                                IsUser = @isUser, 
-                                EmbeddingVector = @embeddingVector 
+                            UPDATE ChatMessage
+                            SET Content = @content,
+                                Timestamp = @timestamp,
+                                IsUser = @isUser,
+                                EmbeddingVector = @embeddingVector
                             WHERE Id = @id AND ChatId = @chatId";
 
                         command.Parameters.AddWithValue("@content", message.Content ?? string.Empty);
@@ -981,11 +1018,11 @@ namespace LocalAiDemo.Shared.Services
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
-                            UPDATE Person 
-                            SET Name = @name, 
-                                AvatarUrl = @avatarUrl, 
-                                Status = @status, 
-                                LastSeen = @lastSeen, 
+                            UPDATE Person
+                            SET Name = @name,
+                                AvatarUrl = @avatarUrl,
+                                Status = @status,
+                                LastSeen = @lastSeen,
                                 Department = @department
                             WHERE Id = @id";
 
@@ -1008,6 +1045,7 @@ namespace LocalAiDemo.Shared.Services
                 throw;
             }
         }
+
         public async Task<List<Chat>> FindSimilarChatsAsync(float[] embedding, int limit = 5)
         {
             List<Chat> results;
@@ -1181,5 +1219,230 @@ namespace LocalAiDemo.Shared.Services
                 return null;
             }
         }
+
+        #region Chat Segment Methods
+
+        public async Task<int> SaveChatSegmentAsync(ChatSegment segment)
+        {
+            try
+            {
+                _logger.LogDebug("Saving chat segment for chat {ChatId}, date {SegmentDate}",
+                    segment.ChatId, segment.SegmentDate.ToShortDateString());
+
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    if (segment.Id == 0) // Insert new segment
+                    {
+                        command.CommandText = @"
+                            INSERT INTO ChatSegment (ChatId, SegmentDate, Title, CombinedContent, EmbeddingVector, MessageCount, StartTime, EndTime, CreatedAt, Keywords)
+                            VALUES (@chatId, @segmentDate, @title, @combinedContent, @embeddingVector, @messageCount, @startTime, @endTime, @createdAt, @keywords);
+                            SELECT last_insert_rowid();";
+                    }
+                    else // Update existing segment
+                    {
+                        command.CommandText = @"
+                            UPDATE ChatSegment
+                            SET ChatId = @chatId, SegmentDate = @segmentDate, Title = @title,
+                                CombinedContent = @combinedContent, EmbeddingVector = @embeddingVector,
+                                MessageCount = @messageCount, StartTime = @startTime, EndTime = @endTime,
+                                CreatedAt = @createdAt, Keywords = @keywords
+                            WHERE Id = @id;
+                            SELECT @id;";
+                        command.Parameters.AddWithValue("@id", segment.Id);
+                    }
+
+                    command.Parameters.AddWithValue("@chatId", segment.ChatId);
+                    command.Parameters.AddWithValue("@segmentDate", segment.SegmentDate.ToString("yyyy-MM-dd"));
+                    command.Parameters.AddWithValue("@title", segment.Title ?? string.Empty);
+                    command.Parameters.AddWithValue("@combinedContent", segment.CombinedContent ?? string.Empty);
+                    command.Parameters.AddWithValue("@embeddingVector", SerializeVector(segment.EmbeddingVector) ?? (object)DBNull.Value);
+                    command.Parameters.AddWithValue("@messageCount", segment.MessageCount);
+                    command.Parameters.AddWithValue("@startTime", segment.StartTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                    command.Parameters.AddWithValue("@endTime", segment.EndTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                    command.Parameters.AddWithValue("@createdAt", segment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+                    command.Parameters.AddWithValue("@keywords", segment.Keywords ?? string.Empty);
+
+                    var segmentId = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                    segment.Id = segmentId;
+
+                    _logger.LogDebug("Chat segment saved with ID {SegmentId}", segmentId);
+                    return segmentId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving chat segment: {ErrorMessage}", ex.Message);
+                throw;
+            }
+        }
+
+        public async Task<List<ChatSegment>> GetSegmentsForChatAsync(int chatId)
+        {
+            try
+            {
+                var segments = new List<ChatSegment>();
+
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        SELECT Id, ChatId, SegmentDate, Title, CombinedContent, EmbeddingVector,
+                               MessageCount, StartTime, EndTime, CreatedAt, Keywords
+                        FROM ChatSegment
+                        WHERE ChatId = @chatId
+                        ORDER BY SegmentDate";
+                    command.Parameters.AddWithValue("@chatId", chatId);
+
+                    using (var reader = await Task.Run(() => command.ExecuteReader()))
+                    {
+                        while (await Task.Run(() => reader.Read()))
+                        {
+                            var segment = new ChatSegment
+                            {
+                                Id = reader.GetInt32(0),
+                                ChatId = reader.GetInt32(1),
+                                SegmentDate = DateTime.Parse(reader.GetString(2)),
+                                Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                                CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                MessageCount = reader.GetInt32(6),
+                                StartTime = DateTime.Parse(reader.GetString(7)),
+                                EndTime = DateTime.Parse(reader.GetString(8)),
+                                CreatedAt = DateTime.Parse(reader.GetString(9)),
+                                Keywords = reader.IsDBNull(10) ? string.Empty : reader.GetString(10)
+                            };
+
+                            segments.Add(segment);
+                        }
+                    }
+                }
+
+                _logger.LogDebug("Retrieved {SegmentCount} segments for chat {ChatId}", segments.Count, chatId);
+                return segments;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving segments for chat {ChatId}: {ErrorMessage}", chatId, ex.Message);
+                return new List<ChatSegment>();
+            }
+        }
+
+        public async Task<ChatSegment?> GetChatSegmentAsync(int segmentId)
+        {
+            try
+            {
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        SELECT Id, ChatId, SegmentDate, Title, CombinedContent, EmbeddingVector,
+                               MessageCount, StartTime, EndTime, CreatedAt, Keywords
+                        FROM ChatSegment
+                        WHERE Id = @id";
+                    command.Parameters.AddWithValue("@id", segmentId);
+
+                    using (var reader = await Task.Run(() => command.ExecuteReader()))
+                    {
+                        if (await Task.Run(() => reader.Read()))
+                        {
+                            return new ChatSegment
+                            {
+                                Id = reader.GetInt32(0),
+                                ChatId = reader.GetInt32(1),
+                                SegmentDate = DateTime.Parse(reader.GetString(2)),
+                                Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                                CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                MessageCount = reader.GetInt32(6),
+                                StartTime = DateTime.Parse(reader.GetString(7)),
+                                EndTime = DateTime.Parse(reader.GetString(8)),
+                                CreatedAt = DateTime.Parse(reader.GetString(9)),
+                                Keywords = reader.IsDBNull(10) ? string.Empty : reader.GetString(10)
+                            };
+                        }
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving chat segment {SegmentId}: {ErrorMessage}", segmentId, ex.Message);
+                return null;
+            }
+        }
+
+        public async Task DeleteChatSegmentAsync(int segmentId)
+        {
+            try
+            {
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = "DELETE FROM ChatSegment WHERE Id = @id";
+                    command.Parameters.AddWithValue("@id", segmentId);
+
+                    await Task.Run(() => command.ExecuteNonQuery());
+                    _logger.LogDebug("Deleted chat segment {SegmentId}", segmentId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting chat segment {SegmentId}: {ErrorMessage}", segmentId, ex.Message);
+                throw;
+            }
+        }
+
+        public async Task<List<ChatSegment>> GetAllChatSegmentsAsync()
+        {
+            try
+            {
+                var segments = new List<ChatSegment>();
+
+                using (var command = _databaseConnection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        SELECT Id, ChatId, SegmentDate, Title, CombinedContent, EmbeddingVector,
+                               MessageCount, StartTime, EndTime, CreatedAt, Keywords
+                        FROM ChatSegment
+                        ORDER BY ChatId, SegmentDate";
+
+                    using (var reader = await Task.Run(() => command.ExecuteReader()))
+                    {
+                        while (await Task.Run(() => reader.Read()))
+                        {
+                            var segment = new ChatSegment
+                            {
+                                Id = reader.GetInt32(0),
+                                ChatId = reader.GetInt32(1),
+                                SegmentDate = DateTime.Parse(reader.GetString(2)),
+                                Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                                CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                MessageCount = reader.GetInt32(6),
+                                StartTime = DateTime.Parse(reader.GetString(7)),
+                                EndTime = DateTime.Parse(reader.GetString(8)),
+                                CreatedAt = DateTime.Parse(reader.GetString(9)),
+                                Keywords = reader.IsDBNull(10) ? string.Empty : reader.GetString(10)
+                            };
+
+                            segments.Add(segment);
+                        }
+                    }
+                }
+
+                _logger.LogDebug("Retrieved {SegmentCount} total segments", segments.Count);
+                return segments;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving all chat segments: {ErrorMessage}", ex.Message);
+                return new List<ChatSegment>();
+            }
+        }
+
+        public async Task UpdateChatSegmentAsync(ChatSegment segment)
+        {
+            await SaveChatSegmentAsync(segment); // SaveChatSegmentAsync handles both insert and update
+        }
+
+        #endregion Chat Segment Methods
     }
 }

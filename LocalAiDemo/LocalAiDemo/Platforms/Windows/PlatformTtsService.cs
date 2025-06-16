@@ -1,4 +1,3 @@
-using LocalAiDemo.Shared.Services;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
@@ -6,6 +5,7 @@ using Windows.Media.SpeechSynthesis;
 using Windows.Media.Playback;
 using Windows.Storage.Streams;
 using Windows.Media.Core;
+using LocalAiDemo.Shared.Services.Tts;
 
 namespace LocalAiDemo.Platforms.Windows
 {    public class PlatformTtsService : IPlatformTts, IDisposable

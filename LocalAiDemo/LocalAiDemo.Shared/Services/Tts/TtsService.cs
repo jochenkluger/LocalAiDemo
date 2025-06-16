@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Tts
 {
     public interface ITtsService
     {

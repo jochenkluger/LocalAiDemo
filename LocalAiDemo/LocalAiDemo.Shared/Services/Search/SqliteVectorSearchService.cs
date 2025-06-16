@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using SQLite;
 
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Search
 {
     public class SqliteVectorSearchService
     {

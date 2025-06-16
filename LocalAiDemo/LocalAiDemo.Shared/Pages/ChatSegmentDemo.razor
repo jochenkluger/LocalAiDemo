@@ -1,0 +1,314 @@
+@page "/chat-segments"
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using Microsoft.Extensions.Logging
+@inject IChatSegmentService ChatSegmentService
+@inject IChatDatabaseService ChatDatabaseService
+@inject ILogger<ChatSegmentDemo> Logger
+
+<h3>Chat Segmente - Tagesweise Gruppierung</h3>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0">Chat Segmente - Tagesweise Gruppierung</h3>
+                    <div>
+                        <button class="btn btn-primary me-2" @onclick="LoadChats" disabled="@isLoading">
+                            <i class="fas fa-refresh"></i> Aktualisieren
+                        </button>
+                        <button class="btn btn-success" @onclick="CreateAllSegments" disabled="@isLoading">
+                            <i class="fas fa-magic"></i> Alle Segmente erstellen
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">@loadingMessage</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h5>Verfügbare Chats</h5>
+                                <div class="list-group">
+                                    @foreach (var chat in chats)
+                                    {
+                                        <a href="#" class="list-group-item list-group-item-action @(selectedChatId == chat.Id ? "active" : "")"
+                                           @onclick="() => SelectChat(chat.Id)">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <h6 class="mb-1">@chat.Title</h6>
+                                                <small>@chat.Messages.Count Nachrichten</small>
+                                            </div>
+                                            <p class="mb-1">
+                                                <strong>Person:</strong> @(chat.Person?.Name ?? "Unbekannt")
+                                            </p>
+                                            <small>Erstellt: @chat.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+                                        </a>
+                                    }
+                                </div>
+
+                                @if (!chats.Any())
+                                {
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle"></i> Keine Chats gefunden
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="col-md-8">
+                                @if (selectedChatId.HasValue)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h5>Segmente für Chat @selectedChatId</h5>
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="CreateSegmentsForSelectedChat" disabled="@isLoading">
+                                            <i class="fas fa-plus"></i> Segmente erstellen
+                                        </button>
+                                    </div>
+
+                                    @if (selectedChatSegments.Any())
+                                    {
+                                        <div class="accordion" id="segmentsAccordion">
+                                            @foreach (var segment in selectedChatSegments.OrderBy(s => s.SegmentDate))
+                                            {
+                                                <div class="accordion-item">
+                                                    <h2 class="accordion-header" id="heading-@segment.Id">
+                                                        <button class="accordion-button collapsed" type="button" 
+                                                                data-bs-toggle="collapse" data-bs-target="#collapse-@segment.Id" 
+                                                                aria-expanded="false" aria-controls="collapse-@segment.Id">
+                                                            <div class="w-100">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <span>
+                                                                        <strong>@segment.SegmentDate.ToString("dd.MM.yyyy")</strong>
+                                                                        - @segment.Title
+                                                                    </span>
+                                                                    <small class="text-muted">
+                                                                        @segment.MessageCount Nachrichten
+                                                                        @if (segment.EmbeddingVector != null)
+                                                                        {
+                                                                            <span class="badge bg-success ms-2">Vektorisiert</span>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <span class="badge bg-warning ms-2">Nicht vektorisiert</span>
+                                                                        }
+                                                                    </small>
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    </h2>
+                                                    <div id="collapse-@segment.Id" class="accordion-collapse collapse" 
+                                                         aria-labelledby="heading-@segment.Id" data-bs-parent="#segmentsAccordion">
+                                                        <div class="accordion-body">
+                                                            <div class="row">
+                                                                <div class="col-md-6">
+                                                                    <h6>Segment Details</h6>
+                                                                    <ul class="list-unstyled">
+                                                                        <li><strong>Zeitraum:</strong> @segment.StartTime.ToString("HH:mm") - @segment.EndTime.ToString("HH:mm")</li>
+                                                                        <li><strong>Nachrichten:</strong> @segment.MessageCount</li>
+                                                                        <li><strong>Erstellt:</strong> @segment.CreatedAt.ToString("dd.MM.yyyy HH:mm")</li>
+                                                                        @if (!string.IsNullOrEmpty(segment.Keywords))
+                                                                        {
+                                                                            <li><strong>Keywords:</strong> @segment.Keywords</li>
+                                                                        }
+                                                                    </ul>
+                                                                </div>
+                                                                <div class="col-md-6">
+                                                                    <h6>Kombinierter Inhalt</h6>
+                                                                    <div class="border p-2 small" style="max-height: 200px; overflow-y: auto;">
+                                                                        @if (!string.IsNullOrEmpty(segment.CombinedContent))
+                                                                        {
+                                                                            @foreach (var line in segment.CombinedContent.Split('\n').Take(10))
+                                                                            {
+                                                                                <div>@line</div>
+                                                                            }
+                                                                            @if (segment.CombinedContent.Split('\n').Length > 10)
+                                                                            {
+                                                                                <div class="text-muted">... (gekürzt)</div>
+                                                                            }
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <em class="text-muted">Kein Inhalt verfügbar</em>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-info">
+                                            <i class="fas fa-info-circle"></i> Keine Segmente für diesen Chat gefunden. Klicken Sie auf "Segmente erstellen".
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="alert alert-secondary">
+                                        <i class="fas fa-arrow-left"></i> Wählen Sie einen Chat aus der Liste links aus, um die Segmente anzuzeigen.
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="alert @(statusMessage.Contains("Fehler") ? "alert-danger" : "alert-info") alert-dismissible fade show">
+                    @statusMessage
+                    <button type="button" class="btn-close" @onclick="() => statusMessage = string.Empty"></button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Chat> chats = new();
+    private List<ChatSegment> selectedChatSegments = new();
+    private int? selectedChatId;
+    private bool isLoading = false;
+    private string loadingMessage = "";
+    private string statusMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadChats();
+    }
+
+    private async Task LoadChats()
+    {
+        isLoading = true;
+        loadingMessage = "Lade Chats...";
+        statusMessage = "";
+        
+        try
+        {
+            chats = await ChatDatabaseService.GetAllChatsAsync();
+            Logger.LogInformation("Loaded {ChatCount} chats", chats.Count);
+            
+            if (chats.Any())
+            {
+                statusMessage = $"{chats.Count} Chats geladen.";
+            }
+            else
+            {
+                statusMessage = "Keine Chats gefunden.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading chats: {Message}", ex.Message);
+            statusMessage = $"Fehler beim Laden der Chats: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectChat(int chatId)
+    {
+        selectedChatId = chatId;
+        isLoading = true;
+        loadingMessage = "Lade Segmente...";
+        statusMessage = "";
+        
+        try
+        {
+            selectedChatSegments = await ChatSegmentService.GetSegmentsForChatAsync(chatId);
+            Logger.LogInformation("Loaded {SegmentCount} segments for chat {ChatId}", selectedChatSegments.Count, chatId);
+            
+            statusMessage = $"{selectedChatSegments.Count} Segmente für Chat {chatId} geladen.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading segments for chat {ChatId}: {Message}", chatId, ex.Message);
+            statusMessage = $"Fehler beim Laden der Segmente: {ex.Message}";
+            selectedChatSegments = new();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateSegmentsForSelectedChat()
+    {
+        if (!selectedChatId.HasValue) return;
+
+        isLoading = true;
+        loadingMessage = "Erstelle Segmente...";
+        statusMessage = "";
+        
+        try
+        {
+            var segments = await ChatSegmentService.CreateDailySegmentsAsync(selectedChatId.Value);
+            selectedChatSegments = segments;
+            
+            Logger.LogInformation("Created {SegmentCount} segments for chat {ChatId}", segments.Count, selectedChatId.Value);
+            statusMessage = $"{segments.Count} Segmente für Chat {selectedChatId.Value} erstellt und gespeichert.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating segments for chat {ChatId}: {Message}", selectedChatId.Value, ex.Message);
+            statusMessage = $"Fehler beim Erstellen der Segmente: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateAllSegments()
+    {
+        isLoading = true;
+        loadingMessage = "Erstelle Segmente für alle Chats...";
+        statusMessage = "";
+        
+        try
+        {
+            var totalSegments = await ChatSegmentService.CreateSegmentsForAllChatsAsync();
+            
+            Logger.LogInformation("Created {TotalSegments} segments for all chats", totalSegments);
+            statusMessage = $"{totalSegments} Segmente für alle Chats erstellt.";
+            
+            // Reload segments for selected chat if any
+            if (selectedChatId.HasValue)
+            {
+                await SelectChat(selectedChatId.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating segments for all chats: {Message}", ex.Message);
+            statusMessage = $"Fehler beim Erstellen der Segmente: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,376 @@
+@page "/vector-admin"
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Services.Search
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Logging
+@inject IChatVectorService ChatVectorService
+@inject ILogger<VectorAdminPage> Logger
+
+<div class="container-fluid">
+    <h1 class="h3 mb-4">
+        <i class="bi bi-gear-fill me-2"></i>
+        Chat Vector Administration
+    </h1>
+
+    <div class="row">
+        <!-- Statistics Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-graph-up me-2"></i>
+                        Vectorization Statistics
+                    </h5>
+                </div>
+                <div class="card-body">
+                    @if (Stats != null)
+                    {
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-chat-text me-2"></i>
+                                    <span class="fw-bold">Chats:</span>
+                                </div>
+                                <div class="ps-4">
+                                    <div>Total: @Stats.TotalChats</div>
+                                    <div>With Vectors: @Stats.ChatsWithVectors</div>
+                                    <div>Without Vectors: @Stats.ChatsWithoutVectors</div>
+                                    <div class="text-muted">
+                                        @(Stats.ChatVectorizationPercentage.ToString("F1"))% vectorized
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-envelope me-2"></i>
+                                    <span class="fw-bold">Messages:</span>
+                                </div>
+                                <div class="ps-4">
+                                    <div>Total: @Stats.TotalMessages</div>
+                                    <div>Non-empty: @Stats.NonEmptyMessages</div>
+                                    <div>With Vectors: @Stats.MessagesWithVectors</div>
+                                    <div class="text-muted">
+                                        @(Stats.MessageVectorizationPercentage.ToString("F1"))% vectorized
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else if (LoadingStats)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            Loading statistics...
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-muted">No statistics available</div>
+                    }
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-outline-primary btn-sm" @onclick="LoadStats" disabled="@LoadingStats">
+                        <i class="bi bi-arrow-clockwise me-1"></i>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Operations Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-tools me-2"></i>
+                        Vectorization Operations
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" @onclick="VectorizeUnprocessed" disabled="@IsOperationRunning">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            Vectorize Unprocessed Content
+                        </button>
+                        
+                        <button class="btn btn-warning" @onclick="ReVectorizeAll" disabled="@IsOperationRunning">
+                            <i class="bi bi-arrow-repeat me-2"></i>
+                            Re-vectorize All Content
+                        </button>
+                        
+                        <button class="btn btn-info" @onclick="CleanupVectors" disabled="@IsOperationRunning">
+                            <i class="bi bi-trash me-2"></i>
+                            Cleanup Orphaned Vectors
+                        </button>
+                        
+                        <button class="btn btn-secondary" @onclick="RebuildIndices" disabled="@IsOperationRunning">
+                            <i class="bi bi-arrow-clockwise me-2"></i>
+                            Rebuild Vector Indices
+                        </button>
+                    </div>
+
+                    @if (IsOperationRunning)
+                    {
+                        <div class="mt-3 text-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            @CurrentOperation
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Card -->
+    @if (LastResult != null)
+    {
+        <div class="row">
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-check-circle me-2"></i>
+                            Last Operation Result
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert @(LastResult.Success ? "alert-success" : "alert-danger")">
+                            <strong>@(LastResult.Success ? "Success" : "Failed"):</strong>
+                            @LastResult.GetSummary()
+                        </div>
+
+                        @if (LastResult.Success && (LastResult.ChatsProcessed > 0 || LastResult.MessagesProcessed > 0))
+                        {
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Processing Details</h6>
+                                    <ul class="list-unstyled">
+                                        <li><strong>Chats processed:</strong> @LastResult.ChatsProcessed</li>
+                                        <li><strong>Messages processed:</strong> @LastResult.MessagesProcessed</li>
+                                        <li><strong>Duration:</strong> @LastResult.Duration.TotalSeconds.ToString("F1")s</li>
+                                    </ul>
+                                </div>
+                                @if (LastResult.InitialStats != null && LastResult.FinalStats != null)
+                                {
+                                    <div class="col-md-6">
+                                        <h6>Before/After Comparison</h6>
+                                        <div class="row">
+                                            <div class="col-6">
+                                                <small class="text-muted">Before:</small><br>
+                                                Chats: @LastResult.InitialStats.ChatsWithVectors/@LastResult.InitialStats.TotalChats<br>
+                                                Messages: @LastResult.InitialStats.MessagesWithVectors/@LastResult.InitialStats.NonEmptyMessages
+                                            </div>
+                                            <div class="col-6">
+                                                <small class="text-muted">After:</small><br>
+                                                Chats: @LastResult.FinalStats.ChatsWithVectors/@LastResult.FinalStats.TotalChats<br>
+                                                Messages: @LastResult.FinalStats.MessagesWithVectors/@LastResult.FinalStats.NonEmptyMessages
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Vector Search Test -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-search me-2"></i>
+                        Vector Search Test
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" @bind="SearchQuery" @onkeypress="HandleSearchKeyPress" 
+                               placeholder="Enter search query..." />
+                        <button class="btn btn-outline-secondary" @onclick="PerformHybridSearch" disabled="@IsSearching">
+                            @if (IsSearching)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-search me-1"></i>
+                            }
+                            Search
+                        </button>
+                    </div>
+
+                    @if (SearchResults != null && SearchResults.Any())
+                    {
+                        <h6>Search Results (@SearchResults.Count found):</h6>
+                        <div class="list-group">
+                            @foreach (var result in SearchResults)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@result.Chat.Title</h6>
+                                        <small>Score: @result.HybridScore.ToString("F3")</small>
+                                    </div>
+                                    <p class="mb-1">
+                                        <small class="text-muted">
+                                            Vector: @result.VectorSimilarity.ToString("F3") | 
+                                            Text: @result.TextRelevance.ToString("F3")
+                                        </small>
+                                    </p>
+                                    <small>@result.Chat.Messages.Count messages, created @result.Chat.CreatedAt.ToString("g")</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (SearchResults != null && !SearchResults.Any())
+                    {
+                        <div class="alert alert-info">No results found for your search query.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private VectorizationStats? Stats;
+    private bool LoadingStats = false;
+    private bool IsOperationRunning = false;
+    private string CurrentOperation = "";
+    private VectorizationResult? LastResult;
+    
+    private string SearchQuery = "";
+    private bool IsSearching = false;
+    private List<ChatSearchResult>? SearchResults;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStats();
+    }
+
+    private async Task LoadStats()
+    {
+        LoadingStats = true;
+        try
+        {
+            Stats = await ChatVectorService.GetStatsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading vectorization stats");
+        }
+        finally
+        {
+            LoadingStats = false;
+        }
+    }
+
+    private async Task VectorizeUnprocessed()
+    {
+        await RunOperation("Vectorizing unprocessed content...", async () =>
+        {
+            LastResult = await ChatVectorService.VectorizeAllUnprocessedAsync();
+            await LoadStats(); // Refresh stats after operation
+        });
+    }
+
+    private async Task ReVectorizeAll()
+    {
+        await RunOperation("Re-vectorizing all content...", async () =>
+        {
+            LastResult = await ChatVectorService.ReVectorizeAllAsync();
+            await LoadStats(); // Refresh stats after operation
+        });
+    }
+
+    private async Task CleanupVectors()
+    {
+        await RunOperation("Cleaning up orphaned vectors...", async () =>
+        {
+            var cleanedCount = await ChatVectorService.CleanupAsync();
+            LastResult = new VectorizationResult
+            {
+                Success = true,
+                ChatsProcessed = 0,
+                MessagesProcessed = cleanedCount,
+                Duration = TimeSpan.Zero
+            };
+            await LoadStats(); // Refresh stats after operation
+        });
+    }
+
+    private async Task RebuildIndices()
+    {
+        await RunOperation("Rebuilding vector indices...", async () =>
+        {
+            await ChatVectorService.RebuildIndicesAsync();
+            LastResult = new VectorizationResult
+            {
+                Success = true,
+                ChatsProcessed = 0,
+                MessagesProcessed = 0,
+                Duration = TimeSpan.Zero
+            };
+        });
+    }
+
+    private async Task RunOperation(string operationName, Func<Task> operation)
+    {
+        IsOperationRunning = true;
+        CurrentOperation = operationName;
+        LastResult = null;
+
+        try
+        {
+            await operation();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during operation: {Operation}", operationName);
+            LastResult = new VectorizationResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message,
+                Duration = TimeSpan.Zero
+            };
+        }
+        finally
+        {
+            IsOperationRunning = false;
+            CurrentOperation = "";
+        }
+    }
+
+    private async Task PerformHybridSearch()
+    {
+        if (string.IsNullOrWhiteSpace(SearchQuery))
+            return;
+
+        IsSearching = true;
+        try
+        {
+            SearchResults = await ChatVectorService.HybridSearchAsync(SearchQuery, 10);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error performing hybrid search");
+            SearchResults = new List<ChatSearchResult>();
+        }
+        finally
+        {
+            IsSearching = false;
+        }
+    }
+
+    private async Task HandleSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformHybridSearch();
+        }
+    }
+}

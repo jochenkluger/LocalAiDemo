@@ -2,7 +2,7 @@ using Android.Content;
 using Android.OS;
 using Android.Speech.Tts;
 using Java.Util;
-using LocalAiDemo.Shared.Services;
+using LocalAiDemo.Shared.Services.Tts;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;

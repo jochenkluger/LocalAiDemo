@@ -1,4 +1,4 @@
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Generation
 {
     public class AiAssistantService(ITextGenerationService _textGenerationService) : IAiAssistantService
     {

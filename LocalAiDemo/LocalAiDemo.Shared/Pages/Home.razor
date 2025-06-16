@@ -1,8 +1,14 @@
 @page "/"
-@using LocalAiDemo.Shared.Services
-@using LocalAiDemo.Shared.Models
 @using LocalAiDemo.Shared.Components
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Services.Generation
+@using LocalAiDemo.Shared.Services.Search
+@using LocalAiDemo.Shared.Services.Tts
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+sions.Logging
 @using Microsoft.JSInterop
 @inject IFormFactor FormFactor 
 @inject IAiAssistantService AiAssistant
@@ -23,40 +29,93 @@
 <div class="chat-container">
     <!-- Left Column - Chat List -->
     <div class="chat-list">
-        <h2>Chats</h2>
-        <div class="search-box">
-            <input type="text" placeholder="Suche..." @bind="searchQuery" @bind:event="oninput" @onkeyup="SearchChats" />
-        </div>
-        <div class="chat-items">
-            @foreach (var chat in displayedChats)
+        <h2>Chats</h2>        <div class="search-box">
+            <div class="search-input-group">
+                <input type="text" 
+                       placeholder="Intelligente Suche in allen Chats..." 
+                       @bind="searchQuery" 
+                       @onkeypress="HandleSearchKeyPress" />
+                <button class="btn btn-sm btn-primary" @onclick="PerformVectorSearch" disabled="@isSearching">
+                    @if (isSearching)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-search"></i>
+                    }
+                    Suchen
+                </button>
+            </div>
+        </div>        <div class="chat-items">
+            @if (searchResults.Any())
             {
-                <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
-                    <div class="person-avatar small">
-                        @if (chat.Person != null && !string.IsNullOrEmpty(chat.Person.AvatarUrl))
-                        {
-                            <img src="@chat.Person.AvatarUrl" alt="@chat.Person.Name" />
-                        }
-                        else
-                        {
-                            <div class="avatar-placeholder">
-                                @(chat.Person?.Name.FirstOrDefault() ?? 'U')
+                <!-- Search Results -->
+                <div class="search-results-header">
+                    <span>@searchResults.Count Suchergebnisse</span>
+                    <button class="btn btn-sm btn-link" @onclick="ClearSearchResults">
+                        <i class="bi bi-x"></i> Zurück
+                    </button>
+                </div>
+                @foreach (var result in searchResults)
+                {
+                    <div class="search-result-item" @onclick="() => NavigateToSearchResult(result)">
+                        <div class="search-result-header">
+                            <div class="person-avatar small">
+                                @if (result.Chat?.Person != null && !string.IsNullOrEmpty(result.Chat.Person.AvatarUrl))
+                                {
+                                    <img src="@result.Chat.Person.AvatarUrl" alt="@result.Chat.Person.Name" />
+                                }
+                                else
+                                {
+                                    <div class="avatar-placeholder">
+                                        @(result.Chat?.Person?.Name?.FirstOrDefault() ?? 'U')
+                                    </div>
+                                }
                             </div>
-                        }
-                        <span class="status-indicator @(chat.Person?.Status?.ToLower() ?? "offline")"></span>
+                            <div class="search-result-info">
+                                <div class="chat-title">@(result.Chat?.Person?.Name ?? result.Chat?.Title ?? "Unbekannter Chat")</div>
+                                <div class="result-date">@result.Segment.SegmentDate.ToString("dd.MM.yyyy")</div>
+                                <div class="result-score">Relevanz: @(Math.Round(result.SimilarityScore * 100, 1))%</div>
+                            </div>
+                        </div>
+                        <div class="result-content">@result.HighlightedSnippet</div>
                     </div>
-                    <div class="chat-details">
-                        <div class="chat-title">@(chat.Person?.Name ?? chat.Title)</div>
-                        <div class="chat-preview">@GetChatPreview(chat)</div>
-                        <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
-                    </div>
-                </div>
+                }
             }
-
-            @if (!displayedChats.Any())
+            else
             {
-                <div class="empty-state">
-                    <p>Keine Chats gefunden.</p>
-                </div>
+                <!-- Normal Chat List -->
+                @foreach (var chat in displayedChats)
+                {
+                    <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
+                        <div class="person-avatar small">
+                            @if (chat.Person != null && !string.IsNullOrEmpty(chat.Person.AvatarUrl))
+                            {
+                                <img src="@chat.Person.AvatarUrl" alt="@chat.Person.Name" />
+                            }
+                            else
+                            {
+                                <div class="avatar-placeholder">
+                                    @(chat.Person?.Name.FirstOrDefault() ?? 'U')
+                                </div>
+                            }
+                            <span class="status-indicator @(chat.Person?.Status?.ToLower() ?? "offline")"></span>
+                        </div>
+                        <div class="chat-details">
+                            <div class="chat-title">@(chat.Person?.Name ?? chat.Title)</div>
+                            <div class="chat-preview">@GetChatPreview(chat)</div>
+                            <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
+                        </div>
+                    </div>
+                }
+
+                @if (!displayedChats.Any())
+                {
+                    <div class="empty-state">
+                        <p>Keine Chats gefunden.</p>
+                    </div>
+                }
             }
         </div>
         <div class="new-chat-button">
@@ -64,11 +123,11 @@
         </div>
     </div>
     <!-- Middle Column - Current Chat -->
-    <div class="current-chat">
-        <ChatView 
+    <div class="current-chat">        <ChatView 
             @ref="chatViewComponent" 
             CurrentChat="@selectedChat" 
-            OnChatUpdated="@HandleChatUpdated" />    </div>
+            OnChatUpdated="@HandleChatUpdated"
+            OnNavigateToChat="@HandleNavigateToChat" /></div>
     <!-- Right Column - AI Assistant -->
     <div class="ai-assistant">
         <h2>KI-Assistent</h2>
@@ -142,6 +201,8 @@
     private PersonSelectModal? personSelectModal;
     private ChatView? chatViewComponent;
     private string searchQuery = "";
+    private bool isSearching = false;
+    private List<ChatSegmentSearchResult> searchResults = new List<ChatSegmentSearchResult>();
 
     // Database-backed data
     private List<Chat> chats = new List<Chat>();
@@ -896,23 +957,77 @@
         // Nothing to do
     }
 
-    private void SearchChats()
+    private async Task HandleSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformVectorSearch();
+        }
+    }
+    
+    private async Task PerformVectorSearch()
     {
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
+            // Clear search results and show all chats
+            searchResults.Clear();
+            displayedChats = chats.ToList();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        isSearching = true;
+        try
+        {
+            Logger.LogInformation("Performing vector search for query: {Query}", searchQuery);
+            
+            // Use vector-based semantic search
+            searchResults = await ChatService.SearchChatSegmentsAsync(searchQuery);
+            
+            Logger.LogInformation("Found {ResultCount} vector search results", searchResults?.Count ?? 0);
+            
+            // Clear displayed chats when showing search results
+            displayedChats.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error performing vector search: {ErrorMessage}", ex.Message);
+            searchResults.Clear();
+            // Fallback to showing all chats
             displayedChats = chats.ToList();
         }
-        else
+        finally
         {
-            var query = searchQuery.ToLower();
-            displayedChats = chats
-                .Where(c =>
-                    (c.Title?.ToLower().Contains(query) ?? false) ||
-                    (c.Person?.Name.ToLower().Contains(query) ?? false) ||
-                    c.Messages.Any(m => m.Content.ToLower().Contains(query)))
-                .ToList();
+            isSearching = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
+    
+    private void ClearSearchResults()
+    {
+        searchResults.Clear();
+        searchQuery = "";
+        displayedChats = chats.ToList(); // Show all chats again
+        StateHasChanged();
+    }
+    
+    private async Task NavigateToSearchResult(ChatSegmentSearchResult result)
+    {
+        Logger.LogInformation("User clicked on search result for chat {ChatId} on date: {Date}", 
+            result.Chat?.Id ?? 0, result.Segment.SegmentDate.ToShortDateString());
+        
+        // Navigate to the chat containing this result
+        if (result.Chat != null)
+        {
+            await SelectChat(result.Chat.Id);
+            
+            // Clear search results to return to normal chat view
+            searchResults.Clear();
+            searchQuery = "";
+            displayedChats = chats.ToList();
+            await InvokeAsync(StateHasChanged);
+        }
+    }  
 
     private string GetChatPreview(Chat chat)
     {
@@ -982,13 +1097,28 @@
         }
         else
         {
-            SearchChats();
+            // SearchChats();
         }
         
         // Force UI update
         await InvokeAsync(StateHasChanged);
     }
-    
+
+    // Handle navigation to a chat from global search results
+    private async Task HandleNavigateToChat(Chat targetChat)
+    {
+        Logger.LogInformation("HandleNavigateToChat called with chat: {ChatId}", targetChat.Id);
+          // Select the target chat
+        await SelectChat(targetChat.Id);
+        
+        // Clear any existing search in the search box
+        searchQuery = string.Empty;
+        displayedChats = chats.ToList();
+        
+        // Force UI update
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task InitializeTextGenerationServiceAsync()
     {
         try

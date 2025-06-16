@@ -1,6 +1,6 @@
 using AVFoundation;
 using Foundation;
-using LocalAiDemo.Shared.Services;
+using LocalAiDemo.Shared.Services.Tts;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
@@ -13,11 +13,11 @@ namespace LocalAiDemo.Platforms.MacCatalyst
         private AVSpeechSynthesizer _speechSynthesizer;
         private bool _isAvailable;
         private NSObject _notificationObserver;
-        
+
         public PlatformTtsService(ILogger<PlatformTtsService> logger)
         {
             _logger = logger;
-            
+
             try
             {
                 // Initialize AVFoundation TTS
@@ -31,7 +31,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 _isAvailable = false;
             }
         }
-        
+
         public async Task SpeakAsync(string text)
         {
             if (!_isAvailable)
@@ -39,21 +39,21 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 _logger.LogWarning("MacCatalyst TTS is not available");
                 return;
             }
-            
+
             try
             {
                 _logger.LogInformation("MacCatalyst TTS speaking: {Text}", text);
-                
+
                 // Stop current playback
                 await StopSpeakingAsync();
-                
+
                 // Remove previous observer if exists
                 if (_notificationObserver != null)
                 {
                     NSNotificationCenter.DefaultCenter.RemoveObserver(_notificationObserver);
                     _notificationObserver = null;
                 }
-                
+
                 // Create utterance with German language
                 var speechUtterance = new AVSpeechUtterance(text)
                 {
@@ -62,7 +62,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                     Volume = 1.0f,
                     PitchMultiplier = 1.0f
                 };
-                
+
                 // If no German voice was found, use the default voice
                 if (speechUtterance.Voice == null)
                 {
@@ -74,18 +74,18 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                         speechUtterance.Voice = availableVoices[0];
                     }
                 }
-                
+
                 // Start speech synthesis
                 var taskCompletionSource = new TaskCompletionSource<bool>();
-                
+
                 // Event handling for speech output end
                 _notificationObserver = NSNotificationCenter.DefaultCenter.AddObserver(
                     new NSString("AVSpeechSynthesizerDidFinishSpeechUtteranceNotification"),
                     notification => taskCompletionSource.TrySetResult(true));
-                
+
                 // Start speech synthesis
                 _speechSynthesizer.SpeakUtterance(speechUtterance);
-                
+
                 // Wait for completion or timeout after 30 seconds
                 await Task.WhenAny(taskCompletionSource.Task, Task.Delay(30000));
             }
@@ -94,7 +94,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 _logger.LogError(ex, "Error in MacCatalyst TTS");
             }
         }
-        
+
         public Task StopSpeakingAsync()
         {
             try
@@ -102,7 +102,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                 if (_isAvailable && _speechSynthesizer != null)
                 {
                     _logger.LogInformation("Stopping MacCatalyst TTS");
-                    
+
                     if (_speechSynthesizer.Speaking)
                     {
                         _speechSynthesizer.StopSpeaking(AVSpeechBoundary.Immediate);
@@ -113,15 +113,15 @@ namespace LocalAiDemo.Platforms.MacCatalyst
             {
                 _logger.LogError(ex, "Error stopping MacCatalyst TTS");
             }
-            
+
             return Task.CompletedTask;
         }
-        
+
         public bool IsAvailable()
         {
             return _isAvailable;
         }
-        
+
         public void Dispose()
         {
             try
@@ -132,7 +132,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                     NSNotificationCenter.DefaultCenter.RemoveObserver(_notificationObserver);
                     _notificationObserver = null;
                 }
-                
+
                 // Clean up resources
                 if (_speechSynthesizer != null)
                 {
@@ -140,7 +140,7 @@ namespace LocalAiDemo.Platforms.MacCatalyst
                     {
                         _speechSynthesizer.StopSpeaking(AVSpeechBoundary.Immediate);
                     }
-                    
+
                     _speechSynthesizer.Dispose();
                     _speechSynthesizer = null;
                 }

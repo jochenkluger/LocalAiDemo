@@ -1,4 +1,4 @@
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Search
 {
     public interface IEmbeddingService
     {

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Tts
 {
     /// <summary>
     /// Basis-Interface für plattformspezifische TTS-Implementierungen
@@ -8,23 +8,25 @@ namespace LocalAiDemo.Shared.Services
     public interface IPlatformTts
     {
         Task SpeakAsync(string text);
+
         Task StopSpeakingAsync();
+
         bool IsAvailable();
     }
 
     /// <summary>
-    /// TTS-Service, der die systemeigene TTS-Funktionalität verwendet
-    /// Die konkrete Implementierung erfolgt plattformspezifisch
+    /// TTS-Service, der die systemeigene TTS-Funktionalität verwendet Die konkrete Implementierung
+    /// erfolgt plattformspezifisch
     /// </summary>
     public class SystemTtsService : TtsServiceBase
     {
         private readonly IPlatformTts _platformTts;
 
-        public SystemTtsService(IPlatformTts platformTts, ILogger<SystemTtsService> logger) 
+        public SystemTtsService(IPlatformTts platformTts, ILogger<SystemTtsService> logger)
             : base(logger)
         {
             _platformTts = platformTts;
-            Logger.LogInformation("System TTS initialisiert mit Provider: {PlatformType}", 
+            Logger.LogInformation("System TTS initialisiert mit Provider: {PlatformType}",
                 _platformTts.GetType().Name);
         }
 

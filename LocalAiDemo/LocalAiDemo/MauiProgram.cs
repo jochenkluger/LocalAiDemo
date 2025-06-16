@@ -5,8 +5,13 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using System.IO;
 using System.Reflection;
+using LocalAiDemo.Shared.Services.FunctionCalling;
+using LocalAiDemo.Shared.Services.Search;
+using LocalAiDemo.Shared.Services.Tts;
+using LocalAiDemo.Shared.Services.Generation;
 
 namespace LocalAiDemo;
 
@@ -27,10 +32,8 @@ public static class MauiProgram
             .ConfigureFonts(fonts => { fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular"); });
 
         // Add device-specific services used by the LocalAiDemo.Shared project
-        builder.Services.AddSingleton<IFormFactor, FormFactor>();
-
-        // Register our custom services
-        builder.Services.AddSingleton<ITextGenerationService, LocalTextGenerationService>();
+        builder.Services.AddSingleton<IFormFactor, FormFactor>(); // Register our custom services
+        RegisterTextGenerationService(builder);
         builder.Services.AddSingleton<IAiAssistantService, AiAssistantService>();
         builder.Services.AddSingleton<IMeasurementService, MeasurementService>();
         builder.Services.AddSingleton<IEmbeddingService, EmbeddingService>();
@@ -38,7 +41,11 @@ public static class MauiProgram
         // Configure SQLite for the application
         ConfigureSqlite(builder);
         builder.Services.AddSingleton<IChatDatabaseService, ChatDatabaseService>();
-        builder.Services.AddSingleton<IChatService, ChatService>();
+        builder.Services.AddSingleton<IChatService, ChatService>(); // Register vector services
+        builder.Services.AddSingleton<IChatVectorizationService, ChatVectorizationService>();
+        builder.Services.AddSingleton<IAdvancedVectorService, AdvancedVectorService>();
+        builder.Services.AddSingleton<IChatVectorService, ChatVectorService>();
+        builder.Services.AddSingleton<IChatSegmentService, ChatSegmentService>();
 
         // Register platform-specific TTS services
         RegisterTtsServices(builder);
@@ -77,6 +84,46 @@ public static class MauiProgram
         }
     }
 
+    private static void RegisterTextGenerationService(MauiAppBuilder builder)
+    {
+        try
+        {
+            var logger = new LoggerFactory().CreateLogger("TextGenerationConfig");
+
+            // Function Calling Services registrieren
+            builder.Services.AddSingleton<IContactService, ContactService>();
+            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.FunctionCalling.IMessageCreator,
+                LocalAiDemo.Shared.Services.FunctionCalling.DemoMessageCreator>();
+            logger.LogInformation("Function Calling Services registriert");
+
+            // Prüfen der Konfiguration für Text Generation
+            var serviceProvider = builder.Services.BuildServiceProvider();
+            var config = serviceProvider.GetService<IOptions<AppConfiguration>>()?.Value;
+            var useSemanticKernel = config?.UseSemanticKernel ?? false;
+
+            if (useSemanticKernel)
+            {
+                // Registrieren des Semantic Kernel Text Generation Service
+                builder.Services.AddSingleton<ITextGenerationService, SemanticKernelTextGenerationService>();
+                logger.LogInformation("SemanticKernelTextGenerationService registriert");
+            }
+            else
+            {
+                // Standard: Verwenden des Local Text Generation Service (Microsoft.Extensions.AI)
+                builder.Services.AddSingleton<ITextGenerationService, LocalTextGenerationService>();
+                logger.LogInformation("Registriert LocalTextGenerationService (Standard)");
+            }
+        }
+        catch (Exception ex)
+        {
+            var logger = new LoggerFactory().CreateLogger("TextGenerationConfig");
+            logger.LogError(ex, "Fehler beim Registrieren des Text Generation Service: {Message}", ex.Message);
+
+            // Fallback auf Standard-Service
+            builder.Services.AddSingleton<ITextGenerationService, LocalTextGenerationService>();
+        }
+    }
+
     private static void RegisterTtsServices(MauiAppBuilder builder)
     {
         try
@@ -84,8 +131,8 @@ public static class MauiProgram
             var logger = new LoggerFactory().CreateLogger("TtsConfig");
 
             // Get preferred provider from configuration
-            var preferredProvider =
-                builder.Configuration.GetValue<string>("AppSettings:TTS:PreferredProvider") ?? "System";
+            var config = builder.Services.BuildServiceProvider().GetService<IOptions<AppConfiguration>>()?.Value;
+            var preferredProvider = config?.TtsProvider ?? "System";
             logger.LogInformation("Using TTS provider from configuration: {Provider}", preferredProvider);
 
             // Register platform-specific implementation

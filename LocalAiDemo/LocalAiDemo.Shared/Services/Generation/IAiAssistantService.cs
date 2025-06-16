@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LocalAiDemo.Shared.Services
+namespace LocalAiDemo.Shared.Services.Generation
 {
     public interface IAiAssistantService
     {

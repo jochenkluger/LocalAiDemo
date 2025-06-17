@@ -196,10 +196,14 @@ namespace LocalAiDemo.Shared.Services.Tts
             // Diese Überladung für Rückwärtskompatibilität - sollte nicht verwendet werden
             Logger.LogWarning("SpeakAsync ohne IJSRuntime aufgerufen - TTS übersprungen");
             await Task.CompletedTask;
-        }
-
-        public async Task SpeakAsync(string text, IJSRuntime jsRuntime)
+        }        public override async Task SpeakAsync(string text, IJSRuntime? jsRuntime)
         {
+            if (jsRuntime == null)
+            {
+                await SpeakAsync(text);
+                return;
+            }
+            
             var isWebViewContext = CheckWebViewContext(jsRuntime);
             
             if (!isWebViewContext)
@@ -233,15 +237,19 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogError(ex, "Fehler beim Sprechen mit Browser TTS: {Text}", text);
             }
-        }        public override async Task StopSpeakingAsync()
+        }public override async Task StopSpeakingAsync()
         {
             // Diese Überladung für Rückwärtskompatibilität - sollte nicht verwendet werden
             Logger.LogWarning("StopSpeakingAsync ohne IJSRuntime aufgerufen - TTS-Stopp übersprungen");
             await Task.CompletedTask;
-        }
-
-        public async Task StopSpeakingAsync(IJSRuntime jsRuntime)
+        }        public override async Task StopSpeakingAsync(IJSRuntime? jsRuntime)
         {
+            if (jsRuntime == null)
+            {
+                await StopSpeakingAsync();
+                return;
+            }
+            
             var isWebViewContext = CheckWebViewContext(jsRuntime);
             
             if (!isWebViewContext || !_initialized)
@@ -271,12 +279,15 @@ namespace LocalAiDemo.Shared.Services.Tts
             // Da wir das IJSRuntime nicht haben, geben wir true zurück
             // Die tatsächliche Verfügbarkeit wird zur Laufzeit geprüft
             return true;
-        }
-
-        public bool IsAvailable(IJSRuntime jsRuntime)
+        }        public override Task<bool> IsAvailableAsync(IJSRuntime? jsRuntime)
         {
+            if (jsRuntime == null)
+            {
+                return Task.FromResult(IsAvailable());
+            }
+            
             // Nur verfügbar, wenn wir in einem gültigen WebView-Kontext sind
-            return CheckWebViewContext(jsRuntime);
+            return Task.FromResult(CheckWebViewContext(jsRuntime));
         }
 
         public override string GetProviderName()

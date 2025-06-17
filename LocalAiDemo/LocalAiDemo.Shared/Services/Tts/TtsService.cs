@@ -1,16 +1,18 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 
 namespace LocalAiDemo.Shared.Services.Tts
 {
     public interface ITtsService
     {
         Task SpeakAsync(string text);
+        Task SpeakAsync(string text, IJSRuntime? jsRuntime);
         Task StopSpeakingAsync();
+        Task StopSpeakingAsync(IJSRuntime? jsRuntime);
         bool IsAvailable();
+        Task<bool> IsAvailableAsync(IJSRuntime? jsRuntime);
         string GetProviderName();
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Abstrakte Basisklasse für TTS-Dienste, die gemeinsame Funktionalität bereitstellt
     /// </summary>
     public abstract class TtsServiceBase : ITtsService
@@ -23,8 +25,26 @@ namespace LocalAiDemo.Shared.Services.Tts
         }
 
         public abstract Task SpeakAsync(string text);
+        public virtual Task SpeakAsync(string text, IJSRuntime? jsRuntime)
+        {
+            // Standard-Implementierung ignoriert JSRuntime
+            return SpeakAsync(text);
+        }
+        
         public abstract Task StopSpeakingAsync();
+        public virtual Task StopSpeakingAsync(IJSRuntime? jsRuntime)
+        {
+            // Standard-Implementierung ignoriert JSRuntime
+            return StopSpeakingAsync();
+        }
+        
         public abstract bool IsAvailable();
+        public virtual Task<bool> IsAvailableAsync(IJSRuntime? jsRuntime)
+        {
+            // Standard-Implementierung ignoriert JSRuntime
+            return Task.FromResult(IsAvailable());
+        }
+        
         public abstract string GetProviderName();
     }
 

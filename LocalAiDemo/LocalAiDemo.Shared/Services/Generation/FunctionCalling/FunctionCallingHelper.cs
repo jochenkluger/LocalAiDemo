@@ -156,7 +156,9 @@ namespace LocalAiDemo.Shared.Services.FunctionCalling
                 GetSearchContactsFunctionDescription(),
                 GetContactByNameFunctionDescription()
             };
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Generiert eine Systemnachricht mit Funktionsdefinitionen
         /// </summary>
         public static string GenerateFunctionSystemMessage(List<FunctionDescription> functions)
@@ -180,11 +182,16 @@ namespace LocalAiDemo.Shared.Services.FunctionCalling
             }
 
             sb.AppendLine("WICHTIGE REGELN für Function Calls:");
-            sb.AppendLine("- Rufe KEINE Funktionen auf, wenn du nicht sicher bist, dass alle erforderlichen Informationen vorhanden sind");
-            sb.AppendLine("- Wenn ein Benutzer nach einem Kontakt fragt, der nicht existiert, antworte normal ohne Function Call");
+            sb.AppendLine(
+                "- Rufe KEINE Funktionen auf, wenn du nicht sicher bist, dass alle erforderlichen Informationen vorhanden sind");
+            sb.AppendLine(
+                "- Wenn ein Benutzer nach einem Kontakt fragt, der nicht existiert, antworte normal ohne Function Call");
             sb.AppendLine("- Wenn du unsicher bist oder mehr Informationen benötigst, frage den Benutzer nach Details");
-            sb.AppendLine("- Function Calls sollten nur verwendet werden, wenn du eine konkrete Aktion ausführen kannst");
-            sb.AppendLine("- NACH einem Function Call: Gib IMMER eine normale, freundliche Antwort an den Benutzer zurück");
+            sb.AppendLine(
+                "- Function Calls sollten nur verwendet werden, wenn du eine konkrete Aktion ausführen kannst");
+            sb.AppendLine("- Wenn du einen Function Calls machst, sende nur das JSON, keinen zusätzlichen Text");
+            sb.AppendLine(
+                "- Wenn du keinen Function Call mehr ausführst, gib IMMER eine normale, freundliche Antwort an den Benutzer zurück");
             sb.AppendLine("- Erkläre dem Benutzer, was du getan hast, in normaler Sprache");
             sb.AppendLine();
             sb.AppendLine(
@@ -199,7 +206,8 @@ namespace LocalAiDemo.Shared.Services.FunctionCalling
             sb.AppendLine("}");
             sb.AppendLine("```");
             sb.AppendLine();
-            sb.AppendLine("Nach einem erfolgreichen Function Call antworte normal als hilfsreicher Assistent und erkläre, was passiert ist.");
+            sb.AppendLine(
+                "Nach einem erfolgreichen Function Call antworte normal als hilfsreicher Assistent und erkläre, was passiert ist.");
 
             return sb.ToString();
         }

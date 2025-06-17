@@ -11,6 +11,7 @@ using System.Reflection;
 using LocalAiDemo.Shared.Services.FunctionCalling;
 using LocalAiDemo.Shared.Services.Search;
 using LocalAiDemo.Shared.Services.Tts;
+using LocalAiDemo.Shared.Services.Sst;
 using LocalAiDemo.Shared.Services.Generation;
 
 namespace LocalAiDemo;
@@ -45,10 +46,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<IChatVectorizationService, ChatVectorizationService>();
         builder.Services.AddSingleton<IAdvancedVectorService, AdvancedVectorService>();
         builder.Services.AddSingleton<IChatVectorService, ChatVectorService>();
-        builder.Services.AddSingleton<IChatSegmentService, ChatSegmentService>();
-
-        // Register platform-specific TTS services
+        builder.Services.AddSingleton<IChatSegmentService, ChatSegmentService>();        // Register platform-specific TTS services
         RegisterTtsServices(builder);
+          // Register browser-based Speech-to-Text service
+        builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+        builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService, LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
 
         // Configure logging
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
@@ -160,9 +162,7 @@ public static class MauiProgram
             // Default fallback implementation
             builder.Services.AddSingleton<IPlatformTts, Platforms.Default.PlatformTtsService>();
             logger.LogInformation("Registered Default Platform TTS provider");
-#endif
-
-            // Register the correct TTS service based on configuration
+#endif            // Register the correct TTS service based on configuration
             if (preferredProvider == "System")
             {
                 // Register system TTS service as the primary service
@@ -175,6 +175,9 @@ public static class MauiProgram
                 builder.Services.AddSingleton<ITtsService, BrowserTtsService>();
                 logger.LogInformation("Using Browser TTS provider as configured in appsettings.json");
             }
+            
+            // Always register BrowserTtsService as a separate service for direct injection
+            builder.Services.AddSingleton<BrowserTtsService>();
 
             logger.LogInformation("TTS services registered successfully");
         }

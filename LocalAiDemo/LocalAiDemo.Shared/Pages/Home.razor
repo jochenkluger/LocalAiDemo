@@ -5,6 +5,7 @@
 @using LocalAiDemo.Shared.Services.Generation
 @using LocalAiDemo.Shared.Services.Search
 @using LocalAiDemo.Shared.Services.Tts
+@using LocalAiDemo.Shared.Services.Sst
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
@@ -17,8 +18,10 @@
 @inject IMessageInjectionService MessageInjection
 @inject ILogger<Home> Logger
 @inject IJSRuntime JSRuntimeForTts 
+@inject IJSRuntime JSRuntimeForSst
 @inject ITextGenerationService TextGenerationService
 @inject ITtsService TtsService
+@inject ISstService SstService
 @implements IDisposable
 
 <PageTitle>Chat Demo</PageTitle>
@@ -236,24 +239,10 @@
         get => jsRuntime ?? throw new InvalidOperationException("JSRuntime was not initialized");
         set => jsRuntime = value;
     }    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
+    {        if (firstRender)
         {
             try
             {
-                // Speech Recognition initialisieren
-                Logger.LogInformation("Loading speech recognition script");
-                await JSRuntime.InvokeVoidAsync("eval", 
-                    "if (!document.getElementById('speech-recognition-js')) {" +
-                    "  var script = document.createElement('script');" +
-                    "  script.id = 'speech-recognition-js';" +
-                    "  script.src = '_content/LocalAiDemo.Shared/speech-recognition.js';" +
-                    "  script.async = true;" +
-                    "  script.onload = function() { console.log('Speech recognition script loaded successfully'); };" +
-                    "  script.onerror = function() { console.error('Failed to load speech recognition script'); };" +
-                    "  document.body.appendChild(script);" +
-                    "}");
-                
                 // TTS-Funktionen direkt definieren falls das Laden des Skripts fehlschlägt
                 Logger.LogInformation("Defining inline TTS functions");
                 await JSRuntimeForTts.InvokeVoidAsync("eval", @"
@@ -391,11 +380,17 @@
                 
                 // Create our object reference
                 objRef = DotNetObjectReference.Create(this);
-                
-                // Initialize speech recognition with our object reference
-                Logger.LogInformation("Initializing speech recognition");
-                await JSRuntime.InvokeVoidAsync("initSpeechRecognition", objRef);
-                Logger.LogInformation("Speech recognition initialized");
+                  // Initialize speech recognition with our object reference
+                Logger.LogInformation("Initializing speech recognition");                var speechRecognitionAvailable = await SstService.IsAvailableAsync(JSRuntimeForSst);
+                if (speechRecognitionAvailable)
+                {
+                    await SstService.InitializeSpeechRecognitionAsync(JSRuntimeForSst, objRef);
+                    Logger.LogInformation("Speech recognition initialized");
+                }
+                else
+                {
+                    Logger.LogWarning("Speech recognition not available in this browser");
+                }
                 
                 // TTS direkt initialisieren
                 try {
@@ -418,14 +413,13 @@
             }
         }
     }
-    
-    private async Task StartRecording()
+      private async Task StartRecording()
     {
         try
         {
             Logger.LogInformation("Starte Sprachaufnahme");
             isRecording = true;
-            await JSRuntime.InvokeVoidAsync("startSpeechRecognition");
+            await SstService.StartSpeechRecognitionAsync(JSRuntimeForSst);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -442,7 +436,7 @@
             
             Logger.LogInformation("Stoppe Sprachaufnahme");
             isRecording = false;
-            await JSRuntime.InvokeVoidAsync("stopSpeechRecognition");
+            await SstService.StopSpeechRecognitionAsync(JSRuntimeForSst);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -505,18 +499,10 @@
             await InvokeAsync(() => StateHasChanged());
               // Verwende den injizierten TTS-Service
             if (TtsService != null)
-            {
-                try
+            {                try
                 {
-                    // Prüfe, ob es ein BrowserTtsService ist und verwende die erweiterte Methode
-                    if (TtsService is LocalAiDemo.Shared.Services.Tts.BrowserTtsService browserTtsService)
-                    {
-                        await browserTtsService.SpeakAsync(response, JSRuntimeForTts);
-                    }
-                    else
-                    {
-                        await TtsService.SpeakAsync(response);
-                    }
+                    // Verwende das TTS-Service Interface mit IJSRuntime
+                    await TtsService.SpeakAsync(response, JSRuntimeForTts);
                     Logger.LogInformation("TTS erfolgreich gestartet für {Length} Zeichen", response.Length);
                 }
                 catch (Exception ex)
@@ -581,18 +567,10 @@
             if (isSpeaking)
             {                // Versuche zuerst den TTS-Service zu verwenden
                 if (TtsService != null)
-                {
-                    try
+                {                    try
                     {
-                        // Prüfe, ob es ein BrowserTtsService ist und verwende die erweiterte Methode
-                        if (TtsService is LocalAiDemo.Shared.Services.Tts.BrowserTtsService browserTtsService)
-                        {
-                            await browserTtsService.StopSpeakingAsync(JSRuntimeForTts);
-                        }
-                        else
-                        {
-                            await TtsService.StopSpeakingAsync();
-                        }
+                        // Verwende das TTS-Service Interface mit IJSRuntime
+                        await TtsService.StopSpeakingAsync(JSRuntimeForTts);
                         Logger.LogInformation("TTS-Ausgabe über Service gestoppt");
                     }
                     catch (Exception ex)

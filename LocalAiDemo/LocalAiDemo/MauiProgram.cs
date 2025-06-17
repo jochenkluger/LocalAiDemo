@@ -93,7 +93,11 @@ public static class MauiProgram
             // Function Calling Services registrieren
             builder.Services.AddSingleton<IContactService, ContactService>();
             builder.Services.AddSingleton<LocalAiDemo.Shared.Services.FunctionCalling.IMessageCreator,
-                LocalAiDemo.Shared.Services.FunctionCalling.DemoMessageCreator>();
+                LocalAiDemo.Shared.Services.FunctionCalling.MessageCreator>();
+            
+            // Message Injection Service registrieren
+            builder.Services.AddSingleton<IMessageInjectionService, MessageInjectionService>();
+            
             logger.LogInformation("Function Calling Services registriert");
 
             // Prüfen der Konfiguration für Text Generation

@@ -15,13 +15,17 @@ namespace LocalAiDemo.Shared.Services
 
         Task<Chat?> GetChatAsync(int chatId);
 
-        Task<List<Chat>> GetChatsByPersonAsync(int personId);
+        Task<List<Chat>> GetChatsByContactAsync(int contactId);
 
         Task<int> SaveChatAsync(Chat chat);
 
-        Task<List<Person>> GetAllPersonsAsync();
+        Task<List<Contact>> GetAllContactsAsync();
 
-        Task<int> SavePersonAsync(Person person);
+        Task<Contact?> GetContactAsync(int contactId);
+
+        Task<int> SaveContactAsync(Contact contact);
+
+        Task<Chat?> GetOrCreateChatForContactAsync(int contactId);
 
         Task<List<Chat>> FindSimilarChatsAsync(float[] embedding, int limit = 5);
 
@@ -47,7 +51,8 @@ namespace LocalAiDemo.Shared.Services
         private readonly SqliteVectorSearchService _sqliteVectorSearchService;
         private bool _vectorSearchAvailable = false; // Track if vector search is available
 
-        public ChatDatabaseService(IEmbeddingService embeddingService, ILogger<ChatDatabaseService> logger, SqliteVectorSearchService sqliteVectorSearchService)
+        public ChatDatabaseService(IEmbeddingService embeddingService, ILogger<ChatDatabaseService> logger,
+            SqliteVectorSearchService sqliteVectorSearchService)
         {
             _embeddingService = embeddingService;
             _logger = logger;
@@ -58,9 +63,11 @@ namespace LocalAiDemo.Shared.Services
 
             // For MAUI apps, use the app's data directory
 #if WINDOWS
-            var databasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), dbName);
+            var databasePath =
+ Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), dbName);
 #else
-            var databasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), dbName);
+            var databasePath =
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), dbName);
 #endif
 
             _logger.LogInformation("Database path: {DbPath}", databasePath);
@@ -70,7 +77,8 @@ namespace LocalAiDemo.Shared.Services
                 Directory.CreateDirectory(Path.GetDirectoryName(databasePath) ?? string.Empty);
 
                 // Create the database connection
-                _databaseConnection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={databasePath};Mode=ReadWriteCreate");
+                _databaseConnection =
+                    new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={databasePath};Mode=ReadWriteCreate");
                 _databaseConnection.Open();
                 _logger.LogInformation("Database connection created successfully");
 
@@ -103,7 +111,7 @@ namespace LocalAiDemo.Shared.Services
                 using (var command = _databaseConnection.CreateCommand())
                 {
                     command.CommandText = @"
-                        CREATE TABLE IF NOT EXISTS Person (
+                        CREATE TABLE IF NOT EXISTS Contact (
                             Id INTEGER PRIMARY KEY AUTOINCREMENT,
                             Name TEXT NOT NULL,
                             AvatarUrl TEXT,
@@ -112,25 +120,25 @@ namespace LocalAiDemo.Shared.Services
                             Department TEXT
                         )";
                     await Task.Run(() => command.ExecuteNonQuery());
-                    _logger.LogDebug("Person table created");
+                    _logger.LogDebug("Contact table created");
                 }
 
                 // For the Chat table, we need to serialize the embedding vector
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = @"
-                        CREATE TABLE IF NOT EXISTS Chat (
+                    command.CommandText = @"                        CREATE TABLE IF NOT EXISTS Chat (
                             Id INTEGER PRIMARY KEY AUTOINCREMENT,
                             Title TEXT,
                             CreatedAt TEXT,
-                            PersonId INTEGER,
+                            ContactId INTEGER,
                             IsActive INTEGER,
                             EmbeddingVector BLOB,
-                            FOREIGN KEY(PersonId) REFERENCES Person(Id)
+                            FOREIGN KEY(ContactId) REFERENCES Contact(Id)
                         )";
                     await Task.Run(() => command.ExecuteNonQuery());
                     _logger.LogDebug("Chat table created");
-                }                // For the ChatMessage table
+                } // For the ChatMessage table
+
                 using (var command = _databaseConnection.CreateCommand())
                 {
                     command.CommandText = @"
@@ -189,7 +197,8 @@ namespace LocalAiDemo.Shared.Services
                 }
                 catch (SqliteException ex)
                 {
-                    _logger.LogDebug("Vector table creation failed (expected if not supported): {ErrorMessage}", ex.Message);
+                    _logger.LogDebug("Vector table creation failed (expected if not supported): {ErrorMessage}",
+                        ex.Message);
                     throw;
                 }
                 catch (Exception ex)
@@ -213,29 +222,34 @@ namespace LocalAiDemo.Shared.Services
         {
             try
             {
-                // Check if we have any persons
-                List<Person> persons = new List<Person>();
+                // Check if we have any contacts
+                List<Contact> contacts = new List<Contact>();
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT COUNT(*) FROM Person";
-                    var personCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
-                    _logger.LogDebug("Database check: Found {PersonCount} existing persons", personCount);
+                    command.CommandText = "SELECT COUNT(*) FROM Contact";
+                    var contactCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                    _logger.LogDebug("Database check: Found {ContactCount} existing contacts", contactCount);
 
-                    // If we have persons, load them to persons list
-                    if (personCount > 0)
+                    // If we have contacts, load them to contacts list
+                    if (contactCount > 0)
                     {
-                        command.CommandText = "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Person";
+                        command.CommandText = "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Contact";
                         using (var reader = await Task.Run(() => command.ExecuteReader()))
                         {
                             while (await Task.Run(() => reader.Read()))
                             {
-                                persons.Add(new Person
+                                contacts.Add(new Contact
                                 {
                                     Id = reader.GetInt32(0),
                                     Name = reader.GetString(1),
                                     AvatarUrl = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                    Status = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                    LastSeen = reader.IsDBNull(4) ? DateTime.MinValue : DateTime.Parse(reader.GetString(4)),
+                                    Status = Enum.TryParse<ContactStatus>(
+                                        reader.IsDBNull(3) ? "Offline" : reader.GetString(3), out var status)
+                                        ? status
+                                        : ContactStatus.Offline,
+                                    LastSeen = reader.IsDBNull(4)
+                                        ? DateTime.MinValue
+                                        : DateTime.Parse(reader.GetString(4)),
                                     Department = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
                                 });
                             }
@@ -244,220 +258,426 @@ namespace LocalAiDemo.Shared.Services
                 }
 
                 // Force seeding for testing purposes - remove this in production
-                if (persons.Count < 5) // Ensure we have at least 5 persons
+                if (contacts.Count < 5) // Ensure we have at least 5 contacts
                 {
-                    _logger.LogInformation("Seeding database with sample person data");
-
-                    // Clear existing persons first to avoid duplicates (only for testing)
-                    if (persons.Count > 0)
+                    _logger.LogInformation(
+                        "Seeding database with sample contact data"); // Clear existing contacts first to avoid duplicates (only for testing)
+                    if (contacts.Count > 0)
                     {
                         using (var command = _databaseConnection.CreateCommand())
                         {
-                            command.CommandText = "DELETE FROM Person";
+                            command.CommandText = "DELETE FROM Contact";
                             await Task.Run(() => command.ExecuteNonQuery());
-                            _logger.LogDebug("Cleared existing person data");
+                            _logger.LogDebug("Cleared existing contact data");
                         }
                     }
 
-                    // Add sample persons
-                    var samplePersons = new List<Person>
+                    // Add sample contacts
+                    var sampleContacts = new List<Contact>
                     {
-                        new Person { Id = 1, Name = "Maria Schmidt", Status = "Online", Department = "Sales", LastSeen = DateTime.Now, AvatarUrl = "person_1.png" },
-                        new Person { Id = 2, Name = "Thomas Müller", Status = "Away", Department = "Engineering", LastSeen = DateTime.Now.AddHours(-1), AvatarUrl = "person_2.png" },
-                        new Person { Id = 3, Name = "Julia Weber", Status = "Offline", Department = "Marketing", LastSeen = DateTime.Now.AddDays(-1), AvatarUrl = "person_3.png" },
-                        new Person { Id = 4, Name = "Michael Wagner", Status = "Online", Department = "Support", LastSeen = DateTime.Now, AvatarUrl = "person_4.png" },
-                        new Person { Id = 5, Name = "Anna Fischer", Status = "Do Not Disturb", Department = "Management", LastSeen = DateTime.Now.AddMinutes(-30), AvatarUrl = "person_5.png" }
+                        new Contact
+                        {
+                            Id = 1, Name = "Maria Schmidt", Status = ContactStatus.Online, Department = "Sales",
+                            LastSeen = DateTime.Now, AvatarUrl = "person_1.png"
+                        },
+                        new Contact
+                        {
+                            Id = 2, Name = "Thomas Müller", Status = ContactStatus.Away, Department = "Engineering",
+                            LastSeen = DateTime.Now.AddHours(-1), AvatarUrl = "person_2.png"
+                        },
+                        new Contact
+                        {
+                            Id = 3, Name = "Julia Weber", Status = ContactStatus.Offline, Department = "Marketing",
+                            LastSeen = DateTime.Now.AddDays(-1), AvatarUrl = "person_3.png"
+                        },
+                        new Contact
+                        {
+                            Id = 4, Name = "Michael Wagner", Status = ContactStatus.Online, Department = "Support",
+                            LastSeen = DateTime.Now, AvatarUrl = "person_4.png"
+                        },
+                        new Contact
+                        {
+                            Id = 5, Name = "Anna Fischer", Status = ContactStatus.DoNotDisturb,
+                            Department = "Management", LastSeen = DateTime.Now.AddMinutes(-30),
+                            AvatarUrl = "person_5.png"
+                        }
                     };
 
-                    foreach (var person in samplePersons)
+                    foreach (var contact in sampleContacts)
                     {
                         try
                         {
                             using (var command = _databaseConnection.CreateCommand())
                             {
                                 command.CommandText = @"
-                                    INSERT INTO Person (Id, Name, AvatarUrl, Status, LastSeen, Department)
+                                    INSERT INTO Contact (Id, Name, AvatarUrl, Status, LastSeen, Department)
                                     VALUES ($id, $name, $avatar, $status, $lastSeen, $department)";
-
-                                command.Parameters.AddWithValue("$id", person.Id);
-                                command.Parameters.AddWithValue("$name", person.Name);
-                                command.Parameters.AddWithValue("$avatar", person.AvatarUrl ?? (object)DBNull.Value);
-                                command.Parameters.AddWithValue("$status", person.Status ?? (object)DBNull.Value);
-                                command.Parameters.AddWithValue("$lastSeen", person.LastSeen.ToString("o"));
-                                command.Parameters.AddWithValue("$department", person.Department ?? (object)DBNull.Value);
+                                command.Parameters.AddWithValue("$id", contact.Id);
+                                command.Parameters.AddWithValue("$name", contact.Name);
+                                command.Parameters.AddWithValue("$avatar", contact.AvatarUrl ?? (object)DBNull.Value);
+                                command.Parameters.AddWithValue("$status", contact.Status.ToString());
+                                command.Parameters.AddWithValue("$lastSeen", contact.LastSeen.ToString("o"));
+                                command.Parameters.AddWithValue("$department",
+                                    contact.Department ?? (object)DBNull.Value);
 
                                 int count = await Task.Run(() => command.ExecuteNonQuery());
-                                _logger.LogDebug("Added {Count} person: {PersonName}", count, person.Name);
+                                _logger.LogDebug("Added {Count} contact: {ContactName}", count, contact.Name);
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Failed to add person {PersonName}: {ErrorMessage}", person.Name, ex.Message);
+                            _logger.LogError(ex, "Failed to add contact {ContactName}: {ErrorMessage}", contact.Name,
+                                ex.Message);
                         }
                     }
 
-                    // Verify the persons were added
-                    persons = new List<Person>();
+                    // Verify the contacts were added
+                    contacts = new List<Contact>();
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Person";
-                        using (var reader = await Task.Run(() => command.ExecuteReader()))
                         {
-                            while (await Task.Run(() => reader.Read()))
+                            command.CommandText =
+                                "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Contact";
+                            using (var reader = await Task.Run(() => command.ExecuteReader()))
                             {
-                                persons.Add(new Person
+                                while (await Task.Run(() => reader.Read()))
                                 {
-                                    Id = reader.GetInt32(0),
-                                    Name = reader.GetString(1),
-                                    AvatarUrl = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                    Status = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                    LastSeen = reader.IsDBNull(4) ? DateTime.MinValue : DateTime.Parse(reader.GetString(4)),
-                                    Department = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
-                                });
+                                    contacts.Add(new Contact
+                                    {
+                                        Id = reader.GetInt32(0),
+                                        Name = reader.GetString(1),
+                                        AvatarUrl = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                        Status = Enum.TryParse<ContactStatus>(
+                                            reader.IsDBNull(3) ? "Offline" : reader.GetString(3), out var status)
+                                            ? status
+                                            : ContactStatus.Offline,
+                                        LastSeen = reader.IsDBNull(4)
+                                            ? DateTime.MinValue
+                                            : DateTime.Parse(reader.GetString(4)),
+                                        Department = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
+                                    });
+                                }
                             }
+                        }
+
+                        _logger.LogDebug("After seeding: Found {ContactCount} contacts in database", contacts.Count);
+
+                        // List all contacts for debugging
+                        foreach (var contact in contacts)
+                        {
+                            _logger.LogDebug("Contact in DB: ID={ContactId}, Name={ContactName}, Dept={Department}",
+                                contact.Id, contact.Name, contact.Department);
                         }
                     }
 
-                    _logger.LogDebug("After seeding: Found {PersonCount} persons in database", persons.Count);
-
-                    // List all persons for debugging
-                    foreach (var person in persons)
-                    {
-                        _logger.LogDebug("Person in DB: ID={PersonId}, Name={PersonName}, Dept={Department}",
-                            person.Id, person.Name, person.Department);
-                    }
-                }
-
-                // Now check for existing chats
-                int chatCount = 0;
-                using (var command = _databaseConnection.CreateCommand())
-                {
-                    command.CommandText = "SELECT COUNT(*) FROM Chat";
-                    chatCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
-                    _logger.LogDebug("Database check: Found {ChatCount} existing chats", chatCount);
-                }
-
-                // Seed sample chats if none exist
-                if (chatCount == 0 && persons.Count > 0)
-                {
-                    _logger.LogInformation("Seeding database with sample chat data");
-
-                    // Sample chats with different dates spanning several days
-                    var sampleChats = new List<Chat>
-                    {
-                        // Today's chat with Maria (Sales)
-                        new Chat
-                        {
-                            Title = "Produktberatung Herr Meyer",
-                            CreatedAt = DateTime.Now.Date.AddHours(9), // 9 AM today
-                            PersonId = 1, // Maria Schmidt
-                            IsActive = true,
-                            Messages = new List<ChatMessage>
-                            {
-                                new ChatMessage { Content = "Guten Morgen Herr Meyer! Wie ist Ihr Meeting gestern gelaufen?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(0), IsUser = true },
-                                new ChatMessage { Content = "Guten Morgen Frau Schmidt, das Meeting war sehr produktiv. Wir haben großes Interesse an Ihrer Produktlinie.", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(2), IsUser = false },
-                                new ChatMessage { Content = "Das freut mich zu hören! Wären Sie an einer Produktpräsentation nächste Woche interessiert?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(3), IsUser = true },
-                                new ChatMessage { Content = "Ja, sehr gerne. Wie wäre es mit Dienstag um 14 Uhr?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(5), IsUser = false },
-                                new ChatMessage { Content = "Dienstag 14 Uhr passt perfekt. Ich reserviere auch einen Tisch für 18 Uhr im Restaurant 'Zur Eiche', wenn Sie anschließend Zeit für ein Abendessen haben?", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(7), IsUser = true },
-                                new ChatMessage { Content = "Das klingt hervorragend. Ich freue mich auf beides!", Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(9), IsUser = false }
-                            }
-                        },
-
-                        // Yesterday's chat with Thomas (Engineering)
-                        new Chat
-                        {
-                            Title = "Technische Anfrage Schmidt GmbH",
-                            CreatedAt = DateTime.Now.Date.AddDays(-1).AddHours(14), // 2 PM yesterday
-                            PersonId = 2, // Thomas Müller
-                            IsActive = false,
-                            Messages = new List<ChatMessage>
-                            {
-                                new ChatMessage { Content = "Hallo Herr Fischer, haben Sie die technischen Spezifikationen für die neue Produktserie schon erhalten?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(0), IsUser = true },
-                                new ChatMessage { Content = "Guten Tag Herr Müller, ja, ich habe sie gestern bekommen. Ich habe einige Fragen zur Implementierung.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(1), IsUser = false },
-                                new ChatMessage { Content = "Gerne. Was genau möchten Sie wissen?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(3), IsUser = true },
-                                new ChatMessage { Content = "Wie hoch ist die Skalierbarkeit des Systems? Wir planen eine Erweiterung im nächsten Quartal.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(5), IsUser = false },
-                                new ChatMessage { Content = "Das System ist für bis zu 500 Benutzer ausgelegt. Wir könnten das bei einem Mittagessen am Montag näher besprechen?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(7), IsUser = true },
-                                new ChatMessage { Content = "Montag Mittag klingt gut. Haben Sie einen Restaurantvorschlag?", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(9), IsUser = false },
-                                new ChatMessage { Content = "Das 'Bella Italia' bietet einen ruhigen Besprechungsraum. Ich reserviere für 12:30 Uhr.", Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(11), IsUser = true }
-                            }
-                        },
-
-                        // Chat from 3 days ago with Julia (Marketing)
-                        new Chat
-                        {
-                            Title = "Produkteinführung Herbstkampagne",
-                            CreatedAt = DateTime.Now.Date.AddDays(-3).AddHours(11), // 11 AM three days ago
-                            PersonId = 3, // Julia Weber
-                            IsActive = false,
-                            Messages = new List<ChatMessage>
-                            {
-                                new ChatMessage { Content = "Frau Schulz, haben Sie Zeit, über die Marketingstrategie für unsere Herbstprodukte zu sprechen?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(0), IsUser = true },
-                                new ChatMessage { Content = "Natürlich, Frau Weber. Haben Sie schon einen konkreten Ansatz?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(2), IsUser = false },
-                                new ChatMessage { Content = "Ich schlage eine Vorstellung bei einem VIP-Abendessen mit unseren Top-10-Kunden vor.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(5), IsUser = true },
-                                new ChatMessage { Content = "Ausgezeichnete Idee! Welche Location schwebt Ihnen vor?", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(7), IsUser = false },
-                                new ChatMessage { Content = "Das Grand Hotel hat einen exklusiven Saal mit Showbühne. Perfekt für die Produktpräsentation und anschließendes Dinner.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(9), IsUser = true },
-                                new ChatMessage { Content = "Das klingt perfekt. Lassen Sie uns morgen bei einem Kaffee die Details besprechen.", Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(12), IsUser = false }
-                            }
-                        },
-
-                        // Chat from a week ago with Michael (Support)
-                        new Chat
-                        {
-                            Title = "Termin mit Wagner & Co.",
-                            CreatedAt = DateTime.Now.Date.AddDays(-7).AddHours(16), // 4 PM a week ago
-                            PersonId = 4, // Michael Wagner
-                            IsActive = false,
-                            Messages = new List<ChatMessage>
-                            {
-                                new ChatMessage { Content = "Sehr geehrter Herr Becker, haben Sie nächste Woche Zeit für ein Mittagessen, um die Vertragsverlängerung zu besprechen?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(0), IsUser = true },
-                                new ChatMessage { Content = "Guten Tag Herr Wagner. Ja, Mittwoch oder Donnerstag würde mir passen.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(5), IsUser = false },
-                                new ChatMessage { Content = "Perfekt, wie wäre Donnerstag 13 Uhr im 'Steakhouse am Markt'?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(10), IsUser = true },
-                                new ChatMessage { Content = "Das passt mir gut. Werden Sie auch die neuen Preismodelle mitbringen?", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(15), IsUser = false },
-                                new ChatMessage { Content = "Ja, ich bereite alle Unterlagen vor und bringe auch Muster der neuen Premium-Produktlinie mit.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(20), IsUser = true },
-                                new ChatMessage { Content = "Hervorragend. Ich freue mich auf unser Treffen und das gemeinsame Mittagessen.", Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(25), IsUser = false }
-                            }
-                        },
-
-                        // Chat from two weeks ago with Anna (Management)
-                        new Chat
-                        {
-                            Title = "Quartalsplanung mit Hauptkunden",
-                            CreatedAt = DateTime.Now.Date.AddDays(-14).AddHours(10), // 10 AM two weeks ago
-                            PersonId = 5, // Anna Fischer
-                            IsActive = false,
-                            Messages = new List<ChatMessage>
-                            {
-                                new ChatMessage { Content = "Guten Morgen Frau Meier, hätten Sie Zeit für ein Abendessen am Donnerstag, um unsere Strategie für das kommende Quartal zu besprechen?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(0), IsUser = true },
-                                new ChatMessage { Content = "Guten Morgen Frau Fischer. Donnerstag klingt gut, welches Restaurant schlagen Sie vor?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(5), IsUser = false },
-                                new ChatMessage { Content = "Ich würde das 'Seeblick' vorschlagen. Die haben einen separaten Raum für Geschäftsdinner mit diskreter Atmosphäre.", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(7), IsUser = true },
-                                new ChatMessage { Content = "Ausgezeichnete Wahl. Passt 19 Uhr für Sie?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(10), IsUser = false },
-                                new ChatMessage { Content = "19 Uhr ist perfekt. Ich freue mich sehr, dass Sie Zeit haben. Soll ich die neuen Produktmuster mitbringen?", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(12), IsUser = true },
-                                new ChatMessage { Content = "Ja, bitte. Ich bin besonders an der Premium-Serie interessiert, die Sie letzte Woche erwähnt hatten.", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(15), IsUser = false },
-                                new ChatMessage { Content = "Wunderbar, ich werde alles vorbereiten. Bis Donnerstag!", Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(17), IsUser = true }
-                            }
-                        }
-                    };
-
-                    // Save each chat to the database
-                    foreach (var chat in sampleChats)
-                    {
-                        try
-                        {
-                            int chatId = await SaveChatAsync(chat);
-                            _logger.LogDebug("Added sample chat: {ChatTitle} with ID {ChatId}", chat.Title, chatId);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Failed to add sample chat {ChatTitle}: {ErrorMessage}", chat.Title, ex.Message);
-                        }
-                    }
-
-                    // Verify chats were added
+                    // Now check for existing chats
+                    int chatCount = 0;
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = "SELECT COUNT(*) FROM Chat";
                         chatCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
-                        _logger.LogDebug("After seeding: Found {ChatCount} chats in database", chatCount);
+                        _logger.LogDebug("Database check: Found {ChatCount} existing chats", chatCount);
+                    } // Seed sample chats if none exist
+
+                    if (chatCount == 0 && contacts.Count > 0)
+                    {
+                        _logger.LogInformation("Seeding database with sample chat data");
+
+                        // Sample chats with different dates spanning several days
+                        var sampleChats = new List<Chat>
+                        {
+                            // Today's chat with Maria (Sales)
+                            new Chat
+                            {
+                                Title = "Produktberatung Herr Meyer",
+                                CreatedAt = DateTime.Now.Date.AddHours(9), // 9 AM today
+                                ContactId = 1, // Maria Schmidt
+                                IsActive = true,
+                                Messages = new List<ChatMessage>
+                                {
+                                    new ChatMessage
+                                    {
+                                        Content = "Guten Morgen Herr Meyer! Wie ist Ihr Meeting gestern gelaufen?",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(0), IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Guten Morgen Frau Schmidt, das Meeting war sehr produktiv. Wir haben großes Interesse an Ihrer Produktlinie.",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(2), IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das freut mich zu hören! Wären Sie an einer Produktpräsentation nächste Woche interessiert?",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(3), IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Ja, sehr gerne. Wie wäre es mit Dienstag um 14 Uhr?",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(5), IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Dienstag 14 Uhr passt perfekt. Ich reserviere auch einen Tisch für 18 Uhr im Restaurant 'Zur Eiche', wenn Sie anschließend Zeit für ein Abendessen haben?",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(7), IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Das klingt hervorragend. Ich freue mich auf beides!",
+                                        Timestamp = DateTime.Now.Date.AddHours(9).AddMinutes(9), IsUser = false
+                                    }
+                                }
+                            },
+
+                            // Yesterday's chat with Thomas (Engineering)
+                            new Chat
+                            {
+                                Title = "Technische Anfrage Schmidt GmbH",
+                                CreatedAt = DateTime.Now.Date.AddDays(-1).AddHours(14), // 2 PM yesterday
+                                ContactId = 2, // Thomas Müller
+                                IsActive = false,
+                                Messages = new List<ChatMessage>
+                                {
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Hallo Herr Fischer, haben Sie die technischen Spezifikationen für die neue Produktserie schon erhalten?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(0),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Guten Tag Herr Müller, ja, ich habe sie gestern bekommen. Ich habe einige Fragen zur Implementierung.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(1),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Gerne. Was genau möchten Sie wissen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(3),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Wie hoch ist die Skalierbarkeit des Systems? Wir planen eine Erweiterung im nächsten Quartal.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(5),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das System ist für bis zu 500 Benutzer ausgelegt. Wir könnten das bei einem Mittagessen am Montag näher besprechen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(7),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Montag Mittag klingt gut. Haben Sie einen Restaurantvorschlag?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(9),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das 'Bella Italia' bietet einen ruhigen Besprechungsraum. Ich reserviere für 12:30 Uhr.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-1).AddHours(14).AddMinutes(11),
+                                        IsUser = true
+                                    }
+                                }
+                            },
+
+                            // Chat from 3 days ago with Julia (Marketing)
+                            new Chat
+                            {
+                                Title = "Produkteinführung Herbstkampagne",
+                                CreatedAt = DateTime.Now.Date.AddDays(-3).AddHours(11), // 11 AM three days ago
+                                ContactId = 3, // Julia Weber
+                                IsActive = false,
+                                Messages = new List<ChatMessage>
+                                {
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Frau Schulz, haben Sie Zeit, über die Marketingstrategie für unsere Herbstprodukte zu sprechen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(0),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Natürlich, Frau Weber. Haben Sie schon einen konkreten Ansatz?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(2),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Ich schlage eine Vorstellung bei einem VIP-Abendessen mit unseren Top-10-Kunden vor.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(5),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Ausgezeichnete Idee! Welche Location schwebt Ihnen vor?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(7),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das Grand Hotel hat einen exklusiven Saal mit Showbühne. Perfekt für die Produktpräsentation und anschließendes Dinner.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(9),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das klingt perfekt. Lassen Sie uns morgen bei einem Kaffee die Details besprechen.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-3).AddHours(11).AddMinutes(12),
+                                        IsUser = false
+                                    }
+                                }
+                            },
+
+                            // Chat from a week ago with Michael (Support)
+                            new Chat
+                            {
+                                Title = "Termin mit Wagner & Co.",
+                                CreatedAt = DateTime.Now.Date.AddDays(-7).AddHours(16), // 4 PM a week ago
+                                ContactId = 4, // Michael Wagner
+                                IsActive = false,
+                                Messages = new List<ChatMessage>
+                                {
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Sehr geehrter Herr Becker, haben Sie nächste Woche Zeit für ein Mittagessen, um die Vertragsverlängerung zu besprechen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(0),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Guten Tag Herr Wagner. Ja, Mittwoch oder Donnerstag würde mir passen.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(5),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Perfekt, wie wäre Donnerstag 13 Uhr im 'Steakhouse am Markt'?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(10),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Das passt mir gut. Werden Sie auch die neuen Preismodelle mitbringen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(15),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Ja, ich bereite alle Unterlagen vor und bringe auch Muster der neuen Premium-Produktlinie mit.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(20),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Hervorragend. Ich freue mich auf unser Treffen und das gemeinsame Mittagessen.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-7).AddHours(16).AddMinutes(25),
+                                        IsUser = false
+                                    }
+                                }
+                            },
+
+                            // Chat from two weeks ago with Anna (Management)
+                            new Chat
+                            {
+                                Title = "Quartalsplanung mit Hauptkunden",
+                                CreatedAt = DateTime.Now.Date.AddDays(-14).AddHours(10), // 10 AM two weeks ago
+                                ContactId = 5, // Anna Fischer
+                                IsActive = false,
+                                Messages = new List<ChatMessage>
+                                {
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Guten Morgen Frau Meier, hätten Sie Zeit für ein Abendessen am Donnerstag, um unsere Strategie für das kommende Quartal zu besprechen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(0),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Guten Morgen Frau Fischer. Donnerstag klingt gut, welches Restaurant schlagen Sie vor?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(5),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Ich würde das 'Seeblick' vorschlagen. Die haben einen separaten Raum für Geschäftsdinner mit diskreter Atmosphäre.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(7),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Ausgezeichnete Wahl. Passt 19 Uhr für Sie?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(10),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "19 Uhr ist perfekt. Ich freue mich sehr, dass Sie Zeit haben. Soll ich die neuen Produktmuster mitbringen?",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(12),
+                                        IsUser = true
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content =
+                                            "Ja, bitte. Ich bin besonders an der Premium-Serie interessiert, die Sie letzte Woche erwähnt hatten.",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(15),
+                                        IsUser = false
+                                    },
+                                    new ChatMessage
+                                    {
+                                        Content = "Wunderbar, ich werde alles vorbereiten. Bis Donnerstag!",
+                                        Timestamp = DateTime.Now.Date.AddDays(-14).AddHours(10).AddMinutes(17),
+                                        IsUser = true
+                                    }
+                                }
+                            }
+                        };
+
+                        // Save each chat to the database
+                        foreach (var chat in sampleChats)
+                        {
+                            try
+                            {
+                                int chatId = await SaveChatAsync(chat);
+                                _logger.LogDebug("Added sample chat: {ChatTitle} with ID {ChatId}", chat.Title, chatId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to add sample chat {ChatTitle}: {ErrorMessage}",
+                                    chat.Title, ex.Message);
+                            }
+                        }
+
+                        // Verify chats were added
+                        using (var command = _databaseConnection.CreateCommand())
+                        {
+                            command.CommandText = "SELECT COUNT(*) FROM Chat";
+                            chatCount = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                            _logger.LogDebug("After seeding: Found {ChatCount} chats in database", chatCount);
+                        }
                     }
                 }
             }
@@ -476,7 +696,8 @@ namespace LocalAiDemo.Shared.Services
 
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, Title, CreatedAt, PersonId, IsActive, EmbeddingVector FROM Chat ORDER BY CreatedAt DESC";
+                    command.CommandText =
+                        "SELECT Id, Title, CreatedAt, ContactId, IsActive, EmbeddingVector FROM Chat ORDER BY CreatedAt DESC";
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
                     {
@@ -486,21 +707,27 @@ namespace LocalAiDemo.Shared.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Title = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                CreatedAt = reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
-                                PersonId = reader.GetInt32(3),
+                                CreatedAt =
+                                    reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
+                                ContactId = reader.GetInt32(3),
                                 IsActive = reader.GetInt32(4) == 1,
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5))
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5))
                             });
                         }
                     }
                 }
 
-                _logger.LogDebug("GetAllChatsAsync: Retrieved {ChatCount} chats", chats.Count);
-
-                // Load persons for each chat
+                _logger.LogDebug("GetAllChatsAsync: Retrieved {ChatCount} chats",
+                    chats.Count); // Load contacts for each chat
                 foreach (var chat in chats)
                 {
-                    chat.Person = await GetPersonAsync(chat.PersonId);
+                    if (chat.ContactId.HasValue)
+                    {
+                        chat.Contact = await GetContactAsync(chat.ContactId.Value);
+                    }
+
                     chat.Messages = await GetChatMessagesAsync(chat.Id);
                 }
 
@@ -521,7 +748,8 @@ namespace LocalAiDemo.Shared.Services
 
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, Title, CreatedAt, PersonId, IsActive, EmbeddingVector FROM Chat WHERE Id = @id";
+                    command.CommandText =
+                        "SELECT Id, Title, CreatedAt, ContactId, IsActive, EmbeddingVector FROM Chat WHERE Id = @id";
                     command.Parameters.AddWithValue("@id", chatId);
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
@@ -532,10 +760,13 @@ namespace LocalAiDemo.Shared.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Title = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                CreatedAt = reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
-                                PersonId = reader.GetInt32(3),
+                                CreatedAt =
+                                    reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
+                                ContactId = reader.GetInt32(3),
                                 IsActive = reader.GetInt32(4) == 1,
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5))
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5))
                             };
                         }
                     }
@@ -543,7 +774,11 @@ namespace LocalAiDemo.Shared.Services
 
                 if (chat != null)
                 {
-                    chat.Person = await GetPersonAsync(chat.PersonId);
+                    if (chat.ContactId.HasValue)
+                    {
+                        chat.Contact = await GetContactAsync(chat.ContactId.Value);
+                    }
+
                     chat.Messages = await GetChatMessagesAsync(chatId);
                     _logger.LogDebug("Retrieved chat {ChatId} with {MessageCount} messages",
                         chatId, chat.Messages.Count);
@@ -562,7 +797,7 @@ namespace LocalAiDemo.Shared.Services
             }
         }
 
-        public async Task<List<Chat>> GetChatsByPersonAsync(int personId)
+        public async Task<List<Chat>> GetChatsByContactAsync(int contactId)
         {
             try
             {
@@ -570,8 +805,9 @@ namespace LocalAiDemo.Shared.Services
 
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, Title, CreatedAt, PersonId, IsActive, EmbeddingVector FROM Chat WHERE PersonId = @personId ORDER BY CreatedAt DESC";
-                    command.Parameters.AddWithValue("@personId", personId);
+                    command.CommandText =
+                        "SELECT Id, Title, CreatedAt, ContactId, IsActive, EmbeddingVector FROM Chat WHERE ContactId = @contactId ORDER BY CreatedAt DESC";
+                    command.Parameters.AddWithValue("@contactId", contactId);
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
                     {
@@ -581,29 +817,79 @@ namespace LocalAiDemo.Shared.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Title = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                CreatedAt = reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
-                                PersonId = reader.GetInt32(3),
+                                CreatedAt =
+                                    reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
+                                ContactId = reader.GetInt32(3),
                                 IsActive = reader.GetInt32(4) == 1,
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5))
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5))
                             });
                         }
                     }
                 }
 
-                _logger.LogDebug("Found {ChatCount} chats for person {PersonId}", chats.Count, personId);
-
+                _logger.LogDebug("Found {ChatCount} chats for contact {ContactId}", chats.Count, contactId);
                 foreach (var chat in chats)
                 {
-                    chat.Person = await GetPersonAsync(chat.PersonId);
-                    chat.Messages = await GetChatMessagesAsync(chat.Id);
+                    if (chat.ContactId.HasValue)
+                    {
+                        chat.Contact = await GetContactAsync(chat.ContactId.Value);
+                    }
                 }
+
                 return chats;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting chats for person {PersonId}: {ErrorMessage}",
-                    personId, ex.Message);
+                _logger.LogError(ex, "Error getting chats for contact {ContactId}: {ErrorMessage}",
+                    contactId, ex.Message);
                 return new List<Chat>();
+            }
+        }
+
+        public async Task<Chat?> GetOrCreateChatForContactAsync(int contactId)
+        {
+            try
+            {
+                // First try to get an existing active chat for the contact
+                var existingChats = await GetChatsByContactAsync(contactId);
+                var activeChat = existingChats.FirstOrDefault(c => c.IsActive);
+
+                if (activeChat != null)
+                {
+                    return activeChat;
+                }
+
+                // If no active chat exists, create a new one
+                var contact = await GetContactAsync(contactId);
+                if (contact == null)
+                {
+                    _logger.LogError("Cannot create chat for non-existent contact {ContactId}", contactId);
+                    return null;
+                }
+
+                var newChat = new Chat
+                {
+                    Title = $"Chat with {contact.Name}",
+                    CreatedAt = DateTime.Now,
+                    ContactId = contactId,
+                    IsActive = true,
+                    Messages = new List<ChatMessage>(),
+                    Contact = contact
+                };
+
+                var chatId = await SaveChatAsync(newChat);
+                newChat.Id = chatId;
+
+                _logger.LogDebug("Created new chat {ChatId} for contact {ContactId}", chatId, contactId);
+                return newChat;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting or creating chat for contact {ContactId}: {ErrorMessage}",
+                    contactId, ex.Message);
+                return null;
             }
         }
 
@@ -615,7 +901,8 @@ namespace LocalAiDemo.Shared.Services
 
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, ChatId, Content, Timestamp, IsUser, EmbeddingVector FROM ChatMessage WHERE ChatId = @chatId ORDER BY Timestamp";
+                    command.CommandText =
+                        "SELECT Id, ChatId, Content, Timestamp, IsUser, EmbeddingVector FROM ChatMessage WHERE ChatId = @chatId ORDER BY Timestamp";
                     command.Parameters.AddWithValue("@chatId", chatId);
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
@@ -627,9 +914,12 @@ namespace LocalAiDemo.Shared.Services
                                 Id = reader.GetInt32(0),
                                 ChatId = reader.GetInt32(1),
                                 Content = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Timestamp = reader.IsDBNull(3) ? DateTime.MinValue : DateTime.Parse(reader.GetString(3)),
+                                Timestamp =
+                                    reader.IsDBNull(3) ? DateTime.MinValue : DateTime.Parse(reader.GetString(3)),
                                 IsUser = reader.GetInt32(4) == 1,
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5))
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5))
                             });
                         }
                     }
@@ -664,27 +954,29 @@ namespace LocalAiDemo.Shared.Services
                         {
                             contentToEmbed += " " + chat.Messages.First().Content;
                         }
+
                         chat.EmbeddingVector = _embeddingService.GenerateEmbedding(contentToEmbed);
                     }
 
-                    _logger.LogDebug("Inserting new chat: Title='{Title}', PersonId={PersonId}",
-                        chat.Title, chat.PersonId);
+                    _logger.LogDebug("Inserting new chat: Title='{Title}', ContactId={ContactId}",
+                        chat.Title, chat.ContactId);
 
                     // Add the chat to the database
                     int chatId;
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
-                            INSERT INTO Chat (Title, CreatedAt, PersonId, IsActive, EmbeddingVector)
-                            VALUES (@title, @createdAt, @personId, @isActive, @embeddingVector);
+                            INSERT INTO Chat (Title, CreatedAt, ContactId, IsActive, EmbeddingVector)
+                            VALUES (@title, @createdAt, @ContactId, @isActive, @embeddingVector);
                             SELECT last_insert_rowid();";
 
                         command.Parameters.AddWithValue("@title", chat.Title ?? string.Empty);
                         command.Parameters.AddWithValue("@createdAt", chat.CreatedAt.ToString("o"));
-                        command.Parameters.AddWithValue("@personId", chat.PersonId);
+                        command.Parameters.AddWithValue("@ContactId", chat.ContactId);
                         command.Parameters.AddWithValue("@isActive", chat.IsActive ? 1 : 0);
 
-                        var embeddingBytes = chat.EmbeddingVector != null ? SerializeVector(chat.EmbeddingVector) : null;
+                        var embeddingBytes =
+                            chat.EmbeddingVector != null ? SerializeVector(chat.EmbeddingVector) : null;
                         if (embeddingBytes != null)
                         {
                             command.Parameters.AddWithValue("@embeddingVector", embeddingBytes);
@@ -731,7 +1023,8 @@ namespace LocalAiDemo.Shared.Services
                         {
                             using (var command = _databaseConnection.CreateCommand())
                             {
-                                command.CommandText = "INSERT INTO chat_vectors(embedding_vector, chat_id) VALUES (@embeddingVector, @chatId)";
+                                command.CommandText =
+                                    "INSERT INTO chat_vectors(embedding_vector, chat_id) VALUES (@embeddingVector, @chatId)";
 
                                 var embeddingBytes = SerializeVector(chat.EmbeddingVector);
                                 command.Parameters.AddWithValue("@embeddingVector", embeddingBytes);
@@ -753,7 +1046,7 @@ namespace LocalAiDemo.Shared.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to insert chat: {ErrorMessage}", ex.Message);
-                    throw;  // Re-throw to ensure the error is propagated
+                    throw; // Re-throw to ensure the error is propagated
                 }
             }
             else
@@ -769,7 +1062,7 @@ namespace LocalAiDemo.Shared.Services
                             UPDATE Chat
                             SET Title = @title,
                                 CreatedAt = @createdAt,
-                                PersonId = @personId,
+                                ContactId = @ContactId,
                                 IsActive = @isActive,
                                 EmbeddingVector = @embeddingVector
                             WHERE Id = @id";
@@ -777,10 +1070,11 @@ namespace LocalAiDemo.Shared.Services
                         command.Parameters.AddWithValue("@id", chat.Id);
                         command.Parameters.AddWithValue("@title", chat.Title ?? string.Empty);
                         command.Parameters.AddWithValue("@createdAt", chat.CreatedAt.ToString("o"));
-                        command.Parameters.AddWithValue("@personId", chat.PersonId);
+                        command.Parameters.AddWithValue("@ContactId", chat.ContactId);
                         command.Parameters.AddWithValue("@isActive", chat.IsActive ? 1 : 0);
 
-                        var embeddingBytes = chat.EmbeddingVector != null ? SerializeVector(chat.EmbeddingVector) : null;
+                        var embeddingBytes =
+                            chat.EmbeddingVector != null ? SerializeVector(chat.EmbeddingVector) : null;
                         if (embeddingBytes != null)
                         {
                             command.Parameters.AddWithValue("@embeddingVector", embeddingBytes);
@@ -926,11 +1220,11 @@ namespace LocalAiDemo.Shared.Services
             }
         }
 
-        public async Task<List<Person>> GetAllPersonsAsync()
+        public async Task<List<Contact>> GetAllContactsAsync()
         {
             try
             {
-                var persons = new List<Person>();
+                var contacts = new List<Contact>();
 
                 using (var command = _databaseConnection.CreateCommand())
                 {
@@ -942,19 +1236,22 @@ namespace LocalAiDemo.Shared.Services
                             Status,
                             LastSeen,
                             Department
-                        FROM Person
+                        FROM Contact
                         ORDER BY Name";
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
                     {
                         while (await Task.Run(() => reader.Read()))
                         {
-                            persons.Add(new Person
+                            contacts.Add(new Contact
                             {
                                 Id = reader.GetInt32(0),
                                 Name = reader.GetString(1),
                                 AvatarUrl = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Status = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                                Status = Enum.TryParse<ContactStatus>(
+                                    reader.IsDBNull(3) ? "Offline" : reader.GetString(3), out var status)
+                                    ? status
+                                    : ContactStatus.Offline,
                                 LastSeen = reader.IsDBNull(4) ? DateTime.MinValue : DateTime.Parse(reader.GetString(4)),
                                 Department = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
                             });
@@ -962,63 +1259,72 @@ namespace LocalAiDemo.Shared.Services
                     }
                 }
 
-                _logger.LogDebug("GetAllPersonsAsync: Found {PersonCount} persons", persons.Count);
+                _logger.LogDebug("GetAllContactsAsync: Found {ContactCount} contacts", contacts.Count);
 
-                foreach (var person in persons)
+                foreach (var contact in contacts)
                 {
-                    _logger.LogDebug("Person: ID={PersonId}, Name={PersonName}, Dept={Department}",
-                        person.Id, person.Name, person.Department);
+                    _logger.LogDebug("Contact: ID={ContactId}, Name={ContactName}, Dept={Department}",
+                        contact.Id, contact.Name, contact.Department);
                 }
-                return persons;
+
+                return contacts;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ERROR in GetAllPersonsAsync: {ErrorMessage}", ex.Message);
+                _logger.LogError(ex, "ERROR in GetAllContactsAsync: {ErrorMessage}", ex.Message);
 
-                // Create a fallback list of persons for testing
-                _logger.LogWarning("Returning fallback person list due to error");
-                return new List<Person>
+                // Create a fallback list of contacts for testing
+                _logger.LogWarning("Returning fallback contact list due to error");
+                return new List<Contact>
                 {
-                    new Person { Id = 1, Name = "Maria Schmidt", Status = "Online", Department = "Sales", AvatarUrl = "person_1.png" },
-                    new Person { Id = 2, Name = "Thomas Müller", Status = "Away", Department = "Engineering", AvatarUrl = "person_2.png" }
+                    new Contact
+                    {
+                        Id = 1, Name = "Maria Schmidt", Status = ContactStatus.Online, Department = "Sales",
+                        AvatarUrl = "person_1.png"
+                    },
+                    new Contact
+                    {
+                        Id = 2, Name = "Thomas Müller", Status = ContactStatus.Away, Department = "Engineering",
+                        AvatarUrl = "person_2.png"
+                    }
                 };
             }
         }
 
-        public async Task<int> SavePersonAsync(Person person)
+        public async Task<int> SaveContactAsync(Contact contact)
         {
             try
             {
-                if (person.Id == 0)
+                if (contact.Id == 0)
                 {
-                    _logger.LogDebug("Inserting new person: {PersonName}", person.Name);
+                    _logger.LogDebug("Inserting new contact: {ContactName}", contact.Name);
 
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
-                            INSERT INTO Person (Name, AvatarUrl, Status, LastSeen, Department)
+                            INSERT INTO Contact (Name, AvatarUrl, Status, LastSeen, Department)
                             VALUES (@name, @avatarUrl, @status, @lastSeen, @department);
                             SELECT last_insert_rowid();";
 
-                        command.Parameters.AddWithValue("@name", person.Name);
-                        command.Parameters.AddWithValue("@avatarUrl", person.AvatarUrl ?? (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@status", person.Status ?? (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@lastSeen", person.LastSeen.ToString("o"));
-                        command.Parameters.AddWithValue("@department", person.Department ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@name", contact.Name);
+                        command.Parameters.AddWithValue("@avatarUrl", contact.AvatarUrl ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@status", contact.Status.ToString());
+                        command.Parameters.AddWithValue("@lastSeen", contact.LastSeen.ToString("o"));
+                        command.Parameters.AddWithValue("@department", contact.Department ?? (object)DBNull.Value);
 
                         var id = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
-                        person.Id = id;
+                        contact.Id = id;
                         return id;
                     }
                 }
                 else
                 {
-                    _logger.LogDebug("Updating person {PersonId}: {PersonName}", person.Id, person.Name);
+                    _logger.LogDebug("Updating contact {ContactId}: {ContactName}", contact.Id, contact.Name);
 
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
-                            UPDATE Person
+                            UPDATE Contact
                             SET Name = @name,
                                 AvatarUrl = @avatarUrl,
                                 Status = @status,
@@ -1026,22 +1332,22 @@ namespace LocalAiDemo.Shared.Services
                                 Department = @department
                             WHERE Id = @id";
 
-                        command.Parameters.AddWithValue("@id", person.Id);
-                        command.Parameters.AddWithValue("@name", person.Name);
-                        command.Parameters.AddWithValue("@avatarUrl", person.AvatarUrl ?? (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@status", person.Status ?? (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@lastSeen", person.LastSeen.ToString("o"));
-                        command.Parameters.AddWithValue("@department", person.Department ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@id", contact.Id);
+                        command.Parameters.AddWithValue("@name", contact.Name);
+                        command.Parameters.AddWithValue("@avatarUrl", contact.AvatarUrl ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@status", contact.Status.ToString());
+                        command.Parameters.AddWithValue("@lastSeen", contact.LastSeen.ToString("o"));
+                        command.Parameters.AddWithValue("@department", contact.Department ?? (object)DBNull.Value);
 
                         await Task.Run(() => command.ExecuteNonQuery());
-                        return person.Id;
+                        return contact.Id;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving person {PersonName}: {ErrorMessage}",
-                    person.Name, ex.Message);
+                _logger.LogError(ex, "Error saving contact {ContactName}: {ErrorMessage}",
+                    contact.Name, ex.Message);
                 throw;
             }
         }
@@ -1065,7 +1371,8 @@ namespace LocalAiDemo.Shared.Services
                         var chatIds = new List<int>();
                         using (var command = _databaseConnection.CreateCommand())
                         {
-                            command.CommandText = "SELECT chat_id, distance FROM chat_vectors WHERE vec0_search(embedding_vector, @embedding) LIMIT @limit";
+                            command.CommandText =
+                                "SELECT chat_id, distance FROM chat_vectors WHERE vec0_search(embedding_vector, @embedding) LIMIT @limit";
 
                             // Convert embedding to blob parameter
                             var embeddingBytes = SerializeVector(embedding);
@@ -1101,7 +1408,8 @@ namespace LocalAiDemo.Shared.Services
                     }
                     catch (Microsoft.Data.Sqlite.SqliteException ex)
                     {
-                        _logger.LogWarning("Vector search failed even though it was marked as available: {ErrorMessage}", ex.Message);
+                        _logger.LogWarning(
+                            "Vector search failed even though it was marked as available: {ErrorMessage}", ex.Message);
                         _vectorSearchAvailable = false; // Update flag since vector search isn't working
 
                         // Try to re-enable vector search
@@ -1118,7 +1426,7 @@ namespace LocalAiDemo.Shared.Services
                 var allChats = new List<Chat>();
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, Title, CreatedAt, PersonId, IsActive, EmbeddingVector FROM Chat";
+                    command.CommandText = "SELECT Id, Title, CreatedAt, ContactId, IsActive, EmbeddingVector FROM Chat";
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
                     {
                         while (await Task.Run(() => reader.Read()))
@@ -1127,20 +1435,26 @@ namespace LocalAiDemo.Shared.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Title = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                CreatedAt = reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
-                                PersonId = reader.GetInt32(3),
+                                CreatedAt =
+                                    reader.IsDBNull(2) ? DateTime.MinValue : DateTime.Parse(reader.GetString(2)),
+                                ContactId = reader.GetInt32(3),
                                 IsActive = reader.GetInt32(4) == 1,
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5))
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5))
                             };
                             allChats.Add(chat);
                         }
                     }
-                }
+                } // Load related data for each chat
 
-                // Load related data for each chat
                 foreach (var chat in allChats)
                 {
-                    chat.Person = await GetPersonAsync(chat.PersonId);
+                    if (chat.ContactId.HasValue)
+                    {
+                        chat.Contact = await GetContactAsync(chat.ContactId.Value);
+                    }
+
                     chat.Messages = await GetChatMessagesAsync(chat.Id);
                 }
 
@@ -1186,36 +1500,41 @@ namespace LocalAiDemo.Shared.Services
             return vector;
         }
 
-        private async Task<Person?> GetPersonAsync(int personId)
+        public async Task<Contact?> GetContactAsync(int contactId)
         {
             try
             {
                 using (var command = _databaseConnection.CreateCommand())
                 {
-                    command.CommandText = "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Person WHERE Id = @id";
-                    command.Parameters.AddWithValue("@id", personId);
+                    command.CommandText =
+                        "SELECT Id, Name, AvatarUrl, Status, LastSeen, Department FROM Contact WHERE Id = @id";
+                    command.Parameters.AddWithValue("@id", contactId);
 
                     using (var reader = await Task.Run(() => command.ExecuteReader()))
                     {
                         if (await Task.Run(() => reader.Read()))
                         {
-                            return new Person
+                            return new Contact
                             {
                                 Id = reader.GetInt32(0),
                                 Name = reader.GetString(1),
                                 AvatarUrl = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Status = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                                Status = Enum.TryParse<ContactStatus>(
+                                    reader.IsDBNull(3) ? "Offline" : reader.GetString(3), out var status)
+                                    ? status
+                                    : ContactStatus.Offline,
                                 LastSeen = reader.IsDBNull(4) ? DateTime.MinValue : DateTime.Parse(reader.GetString(4)),
                                 Department = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
                             };
                         }
                     }
                 }
+
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving person {PersonId}: {ErrorMessage}", personId, ex.Message);
+                _logger.LogError(ex, "Error retrieving contact {ContactId}: {ErrorMessage}", contactId, ex.Message);
                 return null;
             }
         }
@@ -1255,7 +1574,8 @@ namespace LocalAiDemo.Shared.Services
                     command.Parameters.AddWithValue("@segmentDate", segment.SegmentDate.ToString("yyyy-MM-dd"));
                     command.Parameters.AddWithValue("@title", segment.Title ?? string.Empty);
                     command.Parameters.AddWithValue("@combinedContent", segment.CombinedContent ?? string.Empty);
-                    command.Parameters.AddWithValue("@embeddingVector", SerializeVector(segment.EmbeddingVector) ?? (object)DBNull.Value);
+                    command.Parameters.AddWithValue("@embeddingVector",
+                        SerializeVector(segment.EmbeddingVector) ?? (object)DBNull.Value);
                     command.Parameters.AddWithValue("@messageCount", segment.MessageCount);
                     command.Parameters.AddWithValue("@startTime", segment.StartTime.ToString("yyyy-MM-dd HH:mm:ss"));
                     command.Parameters.AddWithValue("@endTime", segment.EndTime.ToString("yyyy-MM-dd HH:mm:ss"));
@@ -1303,7 +1623,9 @@ namespace LocalAiDemo.Shared.Services
                                 SegmentDate = DateTime.Parse(reader.GetString(2)),
                                 Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                                 CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5)),
                                 MessageCount = reader.GetInt32(6),
                                 StartTime = DateTime.Parse(reader.GetString(7)),
                                 EndTime = DateTime.Parse(reader.GetString(8)),
@@ -1350,7 +1672,9 @@ namespace LocalAiDemo.Shared.Services
                                 SegmentDate = DateTime.Parse(reader.GetString(2)),
                                 Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                                 CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5)),
                                 MessageCount = reader.GetInt32(6),
                                 StartTime = DateTime.Parse(reader.GetString(7)),
                                 EndTime = DateTime.Parse(reader.GetString(8)),
@@ -1365,7 +1689,8 @@ namespace LocalAiDemo.Shared.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving chat segment {SegmentId}: {ErrorMessage}", segmentId, ex.Message);
+                _logger.LogError(ex, "Error retrieving chat segment {SegmentId}: {ErrorMessage}", segmentId,
+                    ex.Message);
                 return null;
             }
         }
@@ -1415,7 +1740,9 @@ namespace LocalAiDemo.Shared.Services
                                 SegmentDate = DateTime.Parse(reader.GetString(2)),
                                 Title = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                                 CombinedContent = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
-                                EmbeddingVector = reader.IsDBNull(5) ? null : DeserializeVector((byte[])reader.GetValue(5)),
+                                EmbeddingVector = reader.IsDBNull(5)
+                                    ? null
+                                    : DeserializeVector((byte[])reader.GetValue(5)),
                                 MessageCount = reader.GetInt32(6),
                                 StartTime = DateTime.Parse(reader.GetString(7)),
                                 EndTime = DateTime.Parse(reader.GetString(8)),

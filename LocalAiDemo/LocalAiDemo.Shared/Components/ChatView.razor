@@ -3,35 +3,36 @@
 @using LocalAiDemo.Shared.Services.Generation
 @using LocalAiDemo.Shared.Services.Search
 @using Microsoft.Extensions.Logging
+@implements IDisposable
 @inject IAiAssistantService AiAssistant
 @inject IChatDatabaseService ChatDatabase
 @inject IChatService ChatService
 @inject IEmbeddingService EmbeddingService
+@inject IMessageInjectionService MessageInjection
 @inject ILogger<ChatView> Logger
 
 <div class="chat-container-view">
     @if (CurrentChat != null)
-    {
-        <div class="chat-header">
-            @if (CurrentChat.Person != null)
+    {        <div class="chat-header">
+            @if (CurrentChat.Contact != null)
             {
                 <div class="chat-person-info">
                     <div class="person-avatar">
-                        @if (!string.IsNullOrEmpty(CurrentChat.Person.AvatarUrl))
+                        @if (!string.IsNullOrEmpty(CurrentChat.Contact.AvatarUrl))
                         {
-                            <img src="@CurrentChat.Person.AvatarUrl" alt="@CurrentChat.Person.Name" />
+                            <img src="@CurrentChat.Contact.AvatarUrl" alt="@CurrentChat.Contact.Name" />
                         }
                         else
                         {
                             <div class="avatar-placeholder">
-                                @CurrentChat.Person.Name[0]
+                                @CurrentChat.Contact.Name[0]
                             </div>
                         }
-                        <span class="status-indicator @CurrentChat.Person.Status.ToLower()"></span>
+                        <span class="status-indicator @CurrentChat.Contact.Status.ToString().ToLower()"></span>
                     </div>
                     <div>
-                        <h2>@CurrentChat.Person.Name</h2>
-                        <div class="person-department">@CurrentChat.Person.Department</div>
+                        <h2>@CurrentChat.Contact.Name</h2>
+                        <div class="person-department">@CurrentChat.Contact.Department</div>
                     </div>
                 </div>
             }
@@ -48,8 +49,14 @@
                     <div class="message-time">@FormatTime(message.Timestamp)</div>
                 </div>
             }
-        </div>
-        <div class="chat-input">
+        </div>        <div class="chat-input">
+            @if (!string.IsNullOrEmpty(injectedMessageInfo))
+            {
+                <div class="injected-message-info">
+                    <span>💬 @injectedMessageInfo</span>
+                    <button type="button" @onclick="ClearInjectedMessage" class="clear-injection-btn">✕</button>
+                </div>
+            }
             <textarea placeholder="Nachricht eingeben..." 
                       @bind="newMessage" 
                       @onkeydown="HandleKeyPress"></textarea>
@@ -76,6 +83,13 @@
     [Parameter]
     public EventCallback<Chat> OnNavigateToChat { get; set; }    private string newMessage = "";
     private bool isProcessing = false;
+    private string injectedMessageInfo = "";
+
+    protected override void OnInitialized()
+    {
+        // Event-Handler für Message Injection registrieren
+        MessageInjection.MessageInjectionRequested += OnMessageInjectionRequested;
+    }
 
     protected override void OnParametersSet()
     {
@@ -84,6 +98,43 @@
 
         // Scroll to the bottom of the message list when a chat is loaded or messages change
         ScrollToBottom();
+    }
+
+    public void Dispose()
+    {
+        // Event-Handler wieder abmelden
+        MessageInjection.MessageInjectionRequested -= OnMessageInjectionRequested;
+    }
+
+    private async void OnMessageInjectionRequested(object? sender, MessageInjectionEventArgs e)
+    {
+        try
+        {
+            Logger.LogInformation("Message injection requested for contact {ContactName} (ID: {ContactId}): {Message}", 
+                e.ContactName ?? "Unknown", e.ContactId, e.Message);
+
+            // Nachricht in die TextBox einfügen
+            newMessage = e.Message;
+            
+            // Info für den Benutzer anzeigen
+            injectedMessageInfo = $"Nachricht für {e.ContactName ?? "Kontakt"} eingefügt";
+            
+            // UI aktualisieren
+            await InvokeAsync(StateHasChanged);
+            
+            Logger.LogInformation("Message injected into chat textbox successfully");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during message injection: {ErrorMessage}", ex.Message);
+        }
+    }
+
+    private void ClearInjectedMessage()
+    {
+        newMessage = "";
+        injectedMessageInfo = "";
+        StateHasChanged();
     }
 
     private async Task HandleKeyPress(KeyboardEventArgs e)
@@ -100,12 +151,11 @@
             return;
 
         Logger.LogInformation("Sending message in chat {ChatId}", CurrentChat.Id);
-        isProcessing = true;
-
-        try
+        isProcessing = true;        try
         {
             var userMessageContent = newMessage;
             newMessage = ""; // Clear input field immediately
+            injectedMessageInfo = ""; // Clear injection info
             StateHasChanged(); // Update UI immediately
 
             // Use ChatService to add user message with automatic segment handling
@@ -188,5 +238,36 @@
         newMessage = messageContent;
         
         // Call the regular send method
-        await SendMessage();    }
+        await SendMessage();
+    }
 }
+
+<style>
+    .injected-message-info {
+        background-color: #e3f2fd;
+        border: 1px solid #2196f3;
+        border-radius: 4px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.9em;
+        color: #1976d2;
+    }
+
+    .clear-injection-btn {
+        background: none;
+        border: none;
+        color: #1976d2;
+        cursor: pointer;
+        font-size: 1.1em;
+        margin-left: 8px;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .clear-injection-btn:hover {
+        color: #0d47a1;
+    }
+</style>

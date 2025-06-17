@@ -11,27 +11,26 @@
 
 <div class="chat-container-view">
     @if (CurrentChat != null)
-    {
-        <div class="chat-header">
-            @if (CurrentChat.Person != null)
+    {        <div class="chat-header">
+            @if (CurrentChat.Contact != null)
             {
                 <div class="chat-person-info">
                     <div class="person-avatar">
-                        @if (!string.IsNullOrEmpty(CurrentChat.Person.AvatarUrl))
+                        @if (!string.IsNullOrEmpty(CurrentChat.Contact.AvatarUrl))
                         {
-                            <img src="@CurrentChat.Person.AvatarUrl" alt="@CurrentChat.Person.Name" />
+                            <img src="@CurrentChat.Contact.AvatarUrl" alt="@CurrentChat.Contact.Name" />
                         }
                         else
                         {
                             <div class="avatar-placeholder">
-                                @CurrentChat.Person.Name[0]
+                                @CurrentChat.Contact.Name[0]
                             </div>
                         }
-                        <span class="status-indicator @CurrentChat.Person.Status.ToLower()"></span>
+                        <span class="status-indicator @CurrentChat.Contact.Status.ToString().ToLower()"></span>
                     </div>
                     <div>
-                        <h2>@CurrentChat.Person.Name</h2>
-                        <div class="person-department">@CurrentChat.Person.Department</div>
+                        <h2>@CurrentChat.Contact.Name</h2>
+                        <div class="person-department">@CurrentChat.Contact.Department</div>
                     </div>
                 </div>
             }
@@ -71,12 +70,11 @@
                     </div>
                     @foreach (var result in searchResults)
                     {
-                        <div class="search-result-item" @onclick="() => NavigateToResult(result)">
-                            <div class="result-header">
+                        <div class="search-result-item" @onclick="() => NavigateToResult(result)">                            <div class="result-header">
                                 <strong>@(result.Chat?.Title ?? "Unbekannter Chat")</strong>
-                                @if (result.Person != null)
+                                @if (result.Contact != null)
                                 {
-                                    <span class="person-info"> - @result.Person.Name (@result.Person.Department)</span>
+                                    <span class="person-info"> - @result.Contact.Name (@result.Contact.Department)</span>
                                 }
                             </div>
                             <div class="result-snippet">@result.HighlightedSnippet</div>

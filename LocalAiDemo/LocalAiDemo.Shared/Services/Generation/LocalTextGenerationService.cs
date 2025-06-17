@@ -105,58 +105,91 @@ namespace LocalAiDemo.Shared.Services.Generation
         {
             _chatHistory.Add(new ChatMessage(ChatRole.User, message));
 
-            // LLM-Antwort generieren Sicherstellen, dass _chatClient nicht null ist
+            // Sicherstellen, dass _chatClient nicht null ist
             if (_chatClient == null)
             {
                 _logger.LogError("Chat-Client wurde nicht initialisiert");
                 return "Fehler: Chat-Client wurde nicht initialisiert.";
             }
 
-            var response = await _chatClient.GetResponseAsync(_chatHistory);
+            _logger.LogInformation("Starte Inferenz für Nachricht: {Message}", message);
 
-            // Prüfen, ob die Antwort einen Funktionsaufruf enthält
-            var functionCall = FunctionCallingHelper.ExtractFunctionCall(response.Text);
+            // Loop für mehrere Function Calls nacheinander
+            const int maxFunctionCalls = 10; // Verhindert Endlosschleifen
+            int functionCallCount = 0;
+            var executedFunctions = new List<string>(); // Tracking der ausgeführten Funktionen
 
-            if (functionCall != null)
+            while (functionCallCount < maxFunctionCalls)
             {
-                _logger.LogInformation($"Funktionsaufruf erkannt: {functionCall.Name}");
-                string functionResponse = "Funktion konnte nicht ausgeführt werden.";
+                // LLM-Antwort generieren
+                var response = await _chatClient.GetResponseAsync(_chatHistory);
 
-                // CreateMessage-Funktion ausführen
-                if (functionCall.Name.Equals("CreateMessage", StringComparison.OrdinalIgnoreCase))
+                // Prüfen, ob die Antwort einen Funktionsaufruf enthält
+                var functionCall = FunctionCallingHelper.ExtractFunctionCall(response.Text);
+                if (functionCall == null)
                 {
-                    functionResponse = await ExecuteCreateMessageFunction(functionCall);
-                }
-                // GetAvailableContacts-Funktion ausführen
-                else if (functionCall.Name.Equals("GetAvailableContacts", StringComparison.OrdinalIgnoreCase))
-                {
-                    functionResponse = await ExecuteGetAvailableContactsFunction();
-                }
-                // SearchContacts-Funktion ausführen
-                else if (functionCall.Name.Equals("SearchContacts", StringComparison.OrdinalIgnoreCase))
-                {
-                    functionResponse = await ExecuteSearchContactsFunction(functionCall);
-                }
-                // GetContactByName-Funktion ausführen
-                else if (functionCall.Name.Equals("GetContactByName", StringComparison.OrdinalIgnoreCase))
-                {
-                    functionResponse = await ExecuteGetContactByNameFunction(functionCall);
-                }
+                    // Kein Function Call mehr - normale Antwort
+                    _chatHistory.AddMessages(response);
+                    _logger.LogInformation(
+                        "Inferenz abgeschlossen. Ausgeführte Funktionen: [{Functions}]. Finale Antwort generiert.",
+                        string.Join(", ", executedFunctions));
+                    return response.Text;
+                } // Function Call erkannt - ausführen
 
-                // Funktionsantwort in den Chatverlauf einfügen
+                functionCallCount++;
+                executedFunctions.Add(functionCall.Name);
+                _logger.LogInformation("Function Call {Count}/{Max} erkannt: {FunctionName}", functionCallCount,
+                    maxFunctionCalls, functionCall.Name);
+
+                string functionResponse = await ExecuteFunctionAsync(functionCall);
+
+                // Function Call und Antwort zum Chat-Verlauf hinzufügen
                 _chatHistory.Add(new ChatMessage(ChatRole.Assistant, response.Text));
                 _chatHistory.Add(new ChatMessage(ChatRole.System, functionResponse));
 
-                // Erzeuge eine neue Antwort vom Modell, basierend auf der Funktionsausführung
-                var followupResponse = await _chatClient.GetResponseAsync(_chatHistory);
-                _chatHistory.AddMessages(followupResponse);
+                _logger.LogDebug("Function Call {FunctionName} ausgeführt. Antwort: {Response}", functionCall.Name,
+                    functionResponse);
+            } // Maximum erreicht - Warnung und letzte Antwort zurückgeben
 
-                return followupResponse.Text;
+            _logger.LogWarning(
+                "Maximum von {MaxCalls} Function Calls erreicht. Ausgeführte Funktionen: [{Functions}]. Breche ab.",
+                maxFunctionCalls, string.Join(", ", executedFunctions));
+            var finalResponse = await _chatClient.GetResponseAsync(_chatHistory);
+            _chatHistory.AddMessages(finalResponse);
+            return finalResponse.Text;
+        }
+
+        /// <summary>
+        /// Führt einen Function Call aus und gibt die Antwort zurück
+        /// </summary>
+        /// <param name="functionCall">Der auszuführende Function Call</param>
+        /// <returns>Die Antwort der Funktion</returns>
+        private async Task<string> ExecuteFunctionAsync(FunctionCallingHelper.FunctionCall functionCall)
+        {
+            try
+            {
+                _logger.LogDebug("Führe Funktion {FunctionName} mit Argumenten aus: {Arguments}",
+                    functionCall.Name,
+                    string.Join(", ", functionCall.Arguments.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+                var result = functionCall.Name.ToLowerInvariant() switch
+                {
+                    "createmessage" => await ExecuteCreateMessageFunction(functionCall),
+                    "getavailablecontacts" => await ExecuteGetAvailableContactsFunction(),
+                    "searchcontacts" => await ExecuteSearchContactsFunction(functionCall),
+                    "getcontactbyname" => await ExecuteGetContactByNameFunction(functionCall),
+                    _ =>
+                        $"Unbekannte Funktion: {functionCall.Name}. Verfügbare Funktionen: CreateMessage, GetAvailableContacts, SearchContacts, GetContactByName"
+                };
+
+                _logger.LogDebug("Funktion {FunctionName} erfolgreich ausgeführt", functionCall.Name);
+                return result;
             }
-
-            // Wenn kein Funktionsaufruf erkannt wurde, normal fortfahren
-            _chatHistory.AddMessages(response);
-            return response.Text;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fehler beim Ausführen der Funktion {FunctionName}", functionCall.Name);
+                return $"Fehler beim Ausführen der Funktion {functionCall.Name}: {ex.Message}";
+            }
         }
 
         /// <summary>
@@ -193,9 +226,11 @@ namespace LocalAiDemo.Shared.Services.Generation
                     onProgress?.Invoke(progress);
                 }
             }
-        }        /// <summary>
+        }
 
-                 /// Führt die CreateMessage-Funktion aus </summary>
+        /// <summary>
+        /// Führt die CreateMessage-Funktion aus
+        /// </summary>
         private async Task<string> ExecuteCreateMessageFunction(FunctionCallingHelper.FunctionCall functionCall)
         {
             try
@@ -213,17 +248,19 @@ namespace LocalAiDemo.Shared.Services.Generation
                     return "Fehler: Kontakt-ID muss eine gültige Zahl sein.";
                 }
 
-                var messageId = await _messageCreator.CreateMessage(contactId, messageText);
-                return $"Nachricht erfolgreich erstellt mit ID: {messageId}";
+                var messageResponse = await _messageCreator.CreateMessage(contactId, messageText);
+                return messageResponse;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Fehler beim Ausführen der CreateMessage-Funktion");
                 return $"Fehler beim Erstellen der Nachricht: {ex.Message}";
             }
-        }        /// <summary>
+        }
 
-                 /// Führt die GetAvailableContacts-Funktion aus </summary>
+        /// <summary>
+        /// Führt die GetAvailableContacts-Funktion aus
+        /// </summary>
         private async Task<string> ExecuteGetAvailableContactsFunction()
         {
             try
@@ -296,6 +333,7 @@ namespace LocalAiDemo.Shared.Services.Generation
                 {
                     return $"Kontakt '{contactName}' wurde nicht gefunden.";
                 }
+
                 return
                     $"Kontakt gefunden:\n- ID: {contact.Id}\n- Name: {contact.Name}\n- E-Mail: {contact.Email}\n- Telefon: {contact.Phone ?? "Nicht verfügbar"}\n- Notizen: {contact.Notes ?? "Keine Notizen"}";
             }

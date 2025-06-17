@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace LocalAiDemo.Shared.Models
@@ -8,19 +7,14 @@ namespace LocalAiDemo.Shared.Models
     /// Repräsentiert einen Kontakt im System
     /// </summary>
     public class Contact
-    {
-        /// <summary>
+    {        /// <summary>
         /// Eindeutige ID des Kontakts
         /// </summary>
-        public int Id { get; set; }
-
-        /// <summary>
+        public int Id { get; set; }        /// <summary>
         /// Name des Kontakts
         /// </summary>
         [Required]
-        public string Name { get; set; } = string.Empty;
-
-        /// <summary>
+        public string Name { get; set; } = string.Empty;        /// <summary>
         /// E-Mail-Adresse des Kontakts
         /// </summary>
         public string? Email { get; set; }
@@ -36,6 +30,9 @@ namespace LocalAiDemo.Shared.Models
         public string? Avatar { get; set; }
 
         /// <summary>
+        /// Alternative Avatar URL (für Fallback)
+        /// </summary>
+        public string AvatarUrl { get; set; } = string.Empty;        /// <summary>
         /// Status des Kontakts (Online, Offline, Away)
         /// </summary>
         public ContactStatus Status { get; set; } = ContactStatus.Offline;
@@ -44,6 +41,11 @@ namespace LocalAiDemo.Shared.Models
         /// Letzte Aktivität des Kontakts
         /// </summary>
         public DateTime LastSeen { get; set; } = DateTime.Now;
+
+        /// <summary>
+        /// Abteilung des Kontakts (für Organisationen: Sales, Support, Engineering, etc.)
+        /// </summary>
+        public string? Department { get; set; }
 
         /// <summary>
         /// Ob der Kontakt ein Favorit ist
@@ -69,7 +71,6 @@ namespace LocalAiDemo.Shared.Models
         Offline,
         Online,
         Away,
-        Busy,
-        DoNotDisturb
+        Busy,        DoNotDisturb
     }
 }

@@ -1,0 +1,87 @@
+@using LocalAiDemo.Shared.Models
+@inject IChatDatabaseService ChatDatabase
+
+<div class="modal fade @(isVisible ? "show" : "")" id="contactSelectModal" tabindex="-1" style="display: @(isVisible ? "block" : "none")" aria-labelledby="contactSelectModalLabel" aria-hidden="@(!isVisible)">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="contactSelectModalLabel">Kontakt auswählen</h5>
+                <button type="button" class="btn-close" @onclick="Hide" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (contacts != null && contacts.Any())
+                {
+                    <div class="list-group">
+                        @foreach (var contact in contacts)
+                        {
+                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectContact(contact)">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">@contact.Name</h6>
+                                    @if (!string.IsNullOrEmpty(contact.Department))
+                                    {
+                                        <small>@contact.Department</small>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrEmpty(contact.Email))
+                                {
+                                    <small class="text-muted">@contact.Email</small>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p>Keine Kontakte verfügbar.</p>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Hide">Abbrechen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (isVisible)
+{
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private bool isVisible = false;
+    private List<Contact>? contacts;
+
+    [Parameter] public EventCallback<Contact> OnContactSelected { get; set; }
+
+    public async Task Show()
+    {
+        await LoadContacts();
+        isVisible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        isVisible = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadContacts()
+    {
+        try
+        {
+            contacts = await ChatDatabase.GetAllContactsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading contacts: {ex.Message}");
+            contacts = new List<Contact>();
+        }
+    }
+
+    private async Task SelectContact(Contact contact)
+    {
+        Hide();
+        await OnContactSelected.InvokeAsync(contact);
+    }
+}

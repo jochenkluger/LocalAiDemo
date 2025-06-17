@@ -1,14 +1,19 @@
 namespace LocalAiDemo.Shared.Models
-{
-    public class Chat
+{    public class Chat
     {
         public int Id { get; set; }
         public string Title { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public List<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
         public bool IsActive { get; set; }
+        
+        // Legacy PersonId for backward compatibility during migration
         public int PersonId { get; set; }
-        public Person? Person { get; set; }
+        
+        // New: ContactId - this is the primary reference now
+        public int? ContactId { get; set; }
+        public Contact? Contact { get; set; }
+        
         public float[]? EmbeddingVector { get; set; } // For vector search - deprecated, use segments instead
         
         // New: Daily segments for better thematic vectorization
@@ -87,9 +92,7 @@ namespace LocalAiDemo.Shared.Models
         /// Topic keywords extracted from the segment content
         /// </summary>
         public string Keywords { get; set; } = string.Empty;
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Search result for chat segments with similarity score
     /// </summary>
     public class ChatSegmentSearchResult
@@ -97,7 +100,7 @@ namespace LocalAiDemo.Shared.Models
         public ChatSegment Segment { get; set; } = new();
         public float SimilarityScore { get; set; }
         public Chat? Chat { get; set; }
-        public Person? Person { get; set; }
+        public Contact? Contact { get; set; }
         
         /// <summary>
         /// Highlighted snippet from the segment content

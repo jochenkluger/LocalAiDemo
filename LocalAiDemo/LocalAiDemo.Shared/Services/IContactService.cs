@@ -76,14 +76,19 @@ namespace LocalAiDemo.Shared.Services
         /// <param name="id">Kontakt-ID</param>
         /// <param name="status">Neuer Status</param>
         /// <returns>True wenn erfolgreich aktualisiert</returns>
-        Task<bool> UpdateContactStatusAsync(int id, ContactStatus status);
-
-        /// <summary>
+        Task<bool> UpdateContactStatusAsync(int id, ContactStatus status);        /// <summary>
         /// Markiert/Entmarkiert einen Kontakt als Favorit
         /// </summary>
         /// <param name="id">Kontakt-ID</param>
         /// <param name="isFavorite">Favorit-Status</param>
         /// <returns>True wenn erfolgreich aktualisiert</returns>
         Task<bool> SetFavoriteAsync(int id, bool isFavorite);
+
+        /// <summary>
+        /// Stellt sicher, dass ein Kontakt für eine Person aus der Chat-Datenbank existiert
+        /// </summary>
+        /// <param name="personName">Name der Person</param>
+        /// <returns>Kontakt oder null wenn Person nicht gefunden</returns>
+        Task<Contact?> EnsureContactForPersonAsync(string personName);
     }
 }

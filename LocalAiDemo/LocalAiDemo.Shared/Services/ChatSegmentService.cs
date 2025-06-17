@@ -625,11 +625,9 @@ namespace LocalAiDemo.Shared.Services
             if (!segment.Messages.Any())
             {
                 return;
-            }
-
-            // Get user name for context
-            var userName = segment.Chat?.Person?.Name ?? "Unbekannter Benutzer";
-            var userDepartment = segment.Chat?.Person?.Department ?? "";
+            }            // Get user name for context
+            var userName = segment.Chat?.Contact?.Name ?? "Unbekannter Benutzer";
+            var userDepartment = segment.Chat?.Contact?.Department ?? "";
 
             // Combine all message content with user context
             var contentBuilder = new StringBuilder();

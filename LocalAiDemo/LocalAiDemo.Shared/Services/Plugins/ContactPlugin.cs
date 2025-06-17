@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using LocalAiDemo.Shared.Services.FunctionCalling;
 using Microsoft.SemanticKernel;
 
-namespace LocalAiDemo.Shared.Services.Generation.Plugins
+namespace LocalAiDemo.Shared.Services.Plugins
 {
     /// <summary>
     /// Semantic Kernel Plugin für Contact-bezogene Funktionen
@@ -17,17 +17,14 @@ namespace LocalAiDemo.Shared.Services.Generation.Plugins
         public ContactPlugin(IMessageCreator messageCreator)
         {
             _messageCreator = messageCreator;
-        }
-
-        [KernelFunction("get_available_contacts")]
-        [Description(
-            "Ruft alle verfügbaren Kontakte ab, um zu sehen, wer für Nachrichten verfügbar ist. Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
+        }        [KernelFunction("get_available_contacts")]
+        [Description("Ruft alle verfügbaren Kontakte ab, um zu sehen, wer für Nachrichten verfügbar ist. Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
         public async Task<string> GetAvailableContacts()
         {
             try
             {
                 var contacts = await _messageCreator.GetAvailableContacts();
-
+                
                 if (contacts == null || !contacts.Any())
                 {
                     return "Keine Kontakte verfügbar.";
@@ -40,14 +37,10 @@ namespace LocalAiDemo.Shared.Services.Generation.Plugins
             {
                 return $"Fehler beim Abrufen der verfügbaren Kontakte: {ex.Message}";
             }
-        }
-
-        [KernelFunction("search_contacts")]
-        [Description(
-            "Sucht nach Kontakten basierend auf einem Suchbegriff (Name, E-Mail oder Notizen). Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
+        }        [KernelFunction("search_contacts")]
+        [Description("Sucht nach Kontakten basierend auf einem Suchbegriff (Name, E-Mail oder Notizen). Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
         public async Task<string> SearchContacts(
-            [Description("Suchbegriff für die Kontaktsuche")]
-            string searchTerm)
+            [Description("Suchbegriff für die Kontaktsuche")] string searchTerm)
         {
             try
             {
@@ -57,7 +50,7 @@ namespace LocalAiDemo.Shared.Services.Generation.Plugins
                 }
 
                 var contacts = await _messageCreator.SearchContacts(searchTerm);
-
+                
                 if (contacts == null || !contacts.Any())
                 {
                     return $"Keine Kontakte gefunden für Suchbegriff: {searchTerm}";
@@ -70,14 +63,10 @@ namespace LocalAiDemo.Shared.Services.Generation.Plugins
             {
                 return $"Fehler bei der Kontaktsuche: {ex.Message}";
             }
-        }
-
-        [KernelFunction("get_contact_by_name")]
-        [Description(
-            "Ruft einen spezifischen Kontakt nach Namen ab, um Details zu erhalten. Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
+        }        [KernelFunction("get_contact_by_name")]
+        [Description("Ruft einen spezifischen Kontakt nach Namen ab, um Details zu erhalten. Die Antwort enthält die Kontakt-ID die für das Erstellen von Nachrichten benötigt wird.")]
         public async Task<string> GetContactByName(
-            [Description("Name des gesuchten Kontakts")]
-            string contactName)
+            [Description("Name des gesuchten Kontakts")] string contactName)
         {
             try
             {
@@ -87,14 +76,13 @@ namespace LocalAiDemo.Shared.Services.Generation.Plugins
                 }
 
                 var contact = await _messageCreator.GetContactByName(contactName);
-
+                
                 if (contact == null)
                 {
                     return $"Kontakt '{contactName}' wurde nicht gefunden.";
                 }
 
-                return
-                    $"Kontakt gefunden:\n- ID: {contact.Id}\n- Name: {contact.Name}\n- E-Mail: {contact.Email}\n- Telefon: {contact.Phone ?? "Nicht verfügbar"}\n- Notizen: {contact.Notes ?? "Keine Notizen"}";
+                return $"Kontakt gefunden:\n- ID: {contact.Id}\n- Name: {contact.Name}\n- E-Mail: {contact.Email}\n- Telefon: {contact.Phone ?? "Nicht verfügbar"}\n- Notizen: {contact.Notes ?? "Keine Notizen"}";
             }
             catch (Exception ex)
             {

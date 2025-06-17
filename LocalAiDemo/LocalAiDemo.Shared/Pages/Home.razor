@@ -8,14 +8,13 @@
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
-sions.Logging
-@using Microsoft.JSInterop
 @inject IFormFactor FormFactor 
 @inject IAiAssistantService AiAssistant
 @inject IMeasurementService MeasurementService
 @inject IChatDatabaseService ChatDatabase
 @inject IChatService ChatService
 @inject IEmbeddingService EmbeddingService
+@inject IMessageInjectionService MessageInjection
 @inject ILogger<Home> Logger
 @inject IJSRuntime JSRuntimeForTts 
 @inject ITextGenerationService TextGenerationService
@@ -59,22 +58,21 @@ sions.Logging
                 </div>
                 @foreach (var result in searchResults)
                 {
-                    <div class="search-result-item" @onclick="() => NavigateToSearchResult(result)">
-                        <div class="search-result-header">
+                    <div class="search-result-item" @onclick="() => NavigateToSearchResult(result)">                        <div class="search-result-header">
                             <div class="person-avatar small">
-                                @if (result.Chat?.Person != null && !string.IsNullOrEmpty(result.Chat.Person.AvatarUrl))
+                                @if (result.Chat?.Contact != null && !string.IsNullOrEmpty(result.Chat.Contact.AvatarUrl))
                                 {
-                                    <img src="@result.Chat.Person.AvatarUrl" alt="@result.Chat.Person.Name" />
+                                    <img src="@result.Chat.Contact.AvatarUrl" alt="@result.Chat.Contact.Name" />
                                 }
                                 else
                                 {
                                     <div class="avatar-placeholder">
-                                        @(result.Chat?.Person?.Name?.FirstOrDefault() ?? 'U')
+                                        @(result.Chat?.Contact?.Name?.FirstOrDefault() ?? 'U')
                                     </div>
                                 }
                             </div>
                             <div class="search-result-info">
-                                <div class="chat-title">@(result.Chat?.Person?.Name ?? result.Chat?.Title ?? "Unbekannter Chat")</div>
+                                <div class="chat-title">@(result.Chat?.Contact?.Name ?? result.Chat?.Title ?? "Unbekannter Chat")</div>
                                 <div class="result-date">@result.Segment.SegmentDate.ToString("dd.MM.yyyy")</div>
                                 <div class="result-score">Relevanz: @(Math.Round(result.SimilarityScore * 100, 1))%</div>
                             </div>
@@ -87,23 +85,22 @@ sions.Logging
             {
                 <!-- Normal Chat List -->
                 @foreach (var chat in displayedChats)
-                {
-                    <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
+                {                    <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
                         <div class="person-avatar small">
-                            @if (chat.Person != null && !string.IsNullOrEmpty(chat.Person.AvatarUrl))
+                            @if (chat.Contact != null && !string.IsNullOrEmpty(chat.Contact.AvatarUrl))
                             {
-                                <img src="@chat.Person.AvatarUrl" alt="@chat.Person.Name" />
+                                <img src="@chat.Contact.AvatarUrl" alt="@chat.Contact.Name" />
                             }
                             else
                             {
                                 <div class="avatar-placeholder">
-                                    @(chat.Person?.Name.FirstOrDefault() ?? 'U')
+                                    @(chat.Contact?.Name?.FirstOrDefault() ?? 'U')
                                 </div>
                             }
-                            <span class="status-indicator @(chat.Person?.Status?.ToLower() ?? "offline")"></span>
+                            <span class="status-indicator @(chat.Contact?.Status.ToString().ToLower() ?? "offline")"></span>
                         </div>
                         <div class="chat-details">
-                            <div class="chat-title">@(chat.Person?.Name ?? chat.Title)</div>
+                            <div class="chat-title">@(chat.Contact?.Name ?? chat.Title)</div>
                             <div class="chat-preview">@GetChatPreview(chat)</div>
                             <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
                         </div>
@@ -119,7 +116,7 @@ sions.Logging
             }
         </div>
         <div class="new-chat-button">
-            <button @onclick="@(async () => await ShowPersonSelectModal())">Neuer Chat</button>
+            <button @onclick="@(async () => await ShowContactSelectModal())">Neuer Chat</button>
         </div>
     </div>
     <!-- Middle Column - Current Chat -->
@@ -189,16 +186,13 @@ sions.Logging
     }
 </div>
 
-<!-- Person Select Modal -->
-<PersonSelectModal @ref="personSelectModal"
-                   Persons="availablePersons"
-                   OnPersonSelected="OnPersonSelected"
-                   OnCancelled="OnModalCancelled" />
+<!-- Contact Select Modal -->
+<ContactSelectModal @ref="contactSelectModal"
+                   OnContactSelected="OnContactSelected" />
 
 @code {
     private string factor => FormFactor.GetFormFactor();
-    private string platform => FormFactor.GetPlatform();
-    private PersonSelectModal? personSelectModal;
+    private string platform => FormFactor.GetPlatform();    private ContactSelectModal? contactSelectModal;
     private ChatView? chatViewComponent;
     private string searchQuery = "";
     private bool isSearching = false;
@@ -207,7 +201,7 @@ sions.Logging
     // Database-backed data
     private List<Chat> chats = new List<Chat>();
     private List<Chat> displayedChats = new List<Chat>();
-    private List<Person> availablePersons = new List<Person>();
+    private List<Contact> availableContacts = new List<Contact>();
     
     // Eigener Chat für den Assistenten
     private Chat assistantChat = new Chat 
@@ -644,12 +638,10 @@ sions.Logging
             Logger.LogDebug("Loading chats...");
             chats = await ChatDatabase.GetAllChatsAsync();
             displayedChats = chats.ToList();
-            Logger.LogDebug("Loaded {ChatCount} chats", chats.Count);
-
-            // Load available persons
-            Logger.LogDebug("Loading persons...");
-            availablePersons = await ChatDatabase.GetAllPersonsAsync();
-            Logger.LogDebug("Loaded {PersonCount} persons", availablePersons.Count);
+            Logger.LogDebug("Loaded {ChatCount} chats", chats.Count);            // Load available contacts
+            Logger.LogDebug("Loading contacts...");
+            availableContacts = await ChatDatabase.GetAllContactsAsync();
+            Logger.LogDebug("Loaded {ContactCount} contacts", availableContacts.Count);
 
             // Select the first chat if available
             if (chats.Any())
@@ -667,11 +659,19 @@ sions.Logging
             foreach (var m in measurements)
             {
                 Logger.LogDebug("Measurement: {Name}={Value}{Unit}", m.Name, m.Value.ToString("F1"), m.Unit);
-            }
-
-            // Subscribe to measurement updates
+            }            // Subscribe to measurement updates
             Logger.LogDebug("Subscribing to measurement updates");
             MeasurementService.MeasurementsUpdated += OnMeasurementsUpdated;
+            
+            // Subscribe to message injection events
+            Logger.LogDebug("Subscribing to message injection events");            MessageInjection.ChatNavigationRequested += OnChatNavigationRequested;
+              // Run migration to add ContactId to existing chats
+            Logger.LogDebug("Running chat migration...");
+            // Migration methods have been removed - now handled by database initialization
+            
+            // Ensure chat-contact consistency for demo purposes
+            Logger.LogDebug("Ensuring chat-contact consistency...");
+            // Consistency check removed - now handled by database initialization
             
             // Initialize Text Generation Service
             await InitializeTextGenerationServiceAsync();
@@ -685,11 +685,11 @@ sions.Logging
     }
     
     public void Dispose()
-    {
-        try
+    {        try
         {
             // Unsubscribe from events when component is disposed
             MeasurementService.MeasurementsUpdated -= OnMeasurementsUpdated;
+            MessageInjection.ChatNavigationRequested -= OnChatNavigationRequested;
             
             // Stop active TTS
             if (isSpeaking)
@@ -805,34 +805,33 @@ sions.Logging
             Logger.LogError(ex, "Error in SelectChat: {ErrorMessage}", ex.Message);
         }
     }
-    
-    private async Task ShowPersonSelectModal()
+      private async Task ShowContactSelectModal()
     {
-        // Reload persons list before showing the modal
-        Logger.LogDebug("Reloading persons before showing modal");
+        // Reload contacts list before showing the modal
+        Logger.LogDebug("Reloading contacts before showing modal");
         try
         {
-            availablePersons = await ChatDatabase.GetAllPersonsAsync();
-            Logger.LogDebug("Reloaded {PersonCount} persons", availablePersons.Count);
+            availableContacts = await ChatDatabase.GetAllContactsAsync();
+            Logger.LogDebug("Reloaded {ContactCount} contacts", availableContacts.Count);
 
-            if (availablePersons.Count == 0)
+            if (availableContacts.Count == 0)
             {
-                Logger.LogDebug("No persons found, attempting to reinitialize database");
+                Logger.LogDebug("No contacts found, attempting to reinitialize database");
                 await ChatDatabase.InitializeDatabaseAsync();
-                availablePersons = await ChatDatabase.GetAllPersonsAsync();
-                Logger.LogDebug("After reinitialization: {PersonCount} persons", availablePersons.Count);
+                availableContacts = await ChatDatabase.GetAllContactsAsync();
+                Logger.LogDebug("After reinitialization: {ContactCount} contacts", availableContacts.Count);
             }
             
             // Make sure the modal exists
-            if (personSelectModal == null)
+            if (contactSelectModal == null)
             {
-                Logger.LogWarning("personSelectModal is null!");
+                Logger.LogWarning("contactSelectModal is null!");
                 return;
             }
             
             // Show the modal
-            Logger.LogDebug("Showing person select modal");
-            personSelectModal.Show();
+            Logger.LogDebug("Showing contact select modal");
+            await contactSelectModal.Show();
             
             // Force UI update
             StateHasChanged();
@@ -841,20 +840,20 @@ sions.Logging
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error in ShowPersonSelectModal: {ErrorMessage}", ex.Message);
+            Logger.LogError(ex, "Error in ShowContactSelectModal: {ErrorMessage}", ex.Message);
         }
     }
     
-    private async Task OnPersonSelected(Person person)
+    private async Task OnContactSelected(Contact contact)
     {
         try
         {
-            Logger.LogInformation("Home.OnPersonSelected - Called with person: {PersonName} (ID: {PersonId})", 
-                person?.Name ?? "null", person?.Id ?? 0);
+            Logger.LogInformation("Home.OnContactSelected - Called with contact: {ContactName} (ID: {ContactId})", 
+                contact?.Name ?? "null", contact?.Id ?? 0);
             
-            if (person == null)
+            if (contact == null)
             {
-                Logger.LogError("Home.OnPersonSelected - Received null person!");
+                Logger.LogError("Home.OnContactSelected - Received null contact!");
                 return;
             }
             
@@ -867,18 +866,18 @@ sions.Logging
                 Logger.LogInformation("Falling back to direct chat creation");
                 var newChat = new Chat
                 {
-                    Title = $"Chat with {person.Name}",
+                    Title = $"Chat with {contact.Name}",
                     CreatedAt = DateTime.Now,
                     IsActive = true,
-                    PersonId = person.Id,
-                    Person = person,
+                    ContactId = contact.Id,
+                    Contact = contact,
                     Messages = new List<ChatMessage>()
                 };
                 
                 // Add the first message
                 var firstMessage = new ChatMessage
                 {
-                    Content = $"Hallo, ich bin {person.Name} vom {person.Department}. Wie kann ich dir helfen?",
+                    Content = $"Hallo, ich bin {contact.Name} vom {contact.Department}. Wie kann ich dir helfen?",
                     Timestamp = DateTime.Now,
                     IsUser = false
                 };
@@ -904,12 +903,12 @@ sions.Logging
                 return;
             }
             
-            Logger.LogInformation("Creating new chat with person {PersonId} ({PersonName})", person.Id, person.Name);
+            Logger.LogInformation("Creating new chat with contact {ContactId} ({ContactName})", contact.Id, contact.Name);
             
             try 
             {
-                // Use ChatService to create a new chat with the selected person
-                var newChat = await ChatService.CreateNewChatAsync(person);
+                // Use ChatService to create a new chat with the selected contact
+                var newChat = await ChatService.CreateNewChatAsync(contact);
                 
                 if (newChat == null)
                 {
@@ -946,8 +945,7 @@ sions.Logging
             }
         }
         catch (Exception ex)
-        {
-            Logger.LogError(ex, "Overall error in OnPersonSelected: {ErrorMessage}", ex.Message);
+        {            Logger.LogError(ex, "Overall error in OnContactSelected: {ErrorMessage}", ex.Message);
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -1172,6 +1170,60 @@ sions.Logging
             isTextGenerationInitialized = false;
             textGenerationStatus = "Fehler bei KI-Initialisierung";
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// Event-Handler für Chat-Navigation-Anfragen vom MessageInjectionService
+    /// </summary>
+    private async void OnChatNavigationRequested(object? sender, ChatNavigationEventArgs e)
+    {
+        try
+        {
+            Logger.LogInformation("Chat navigation requested for contact {ContactName} (ID: {ContactId})", 
+                e.ContactName ?? "Unknown", e.ContactId);            // Find existing chat for this contact (using getAllChats and filtering)
+            var allChats = await ChatDatabase.GetAllChatsAsync();
+            var existingChat = allChats.FirstOrDefault(c => c.ContactId == e.ContactId);
+            
+            if (existingChat != null)
+            {
+                Logger.LogInformation("Found existing chat {ChatId} for contact {ContactId}", existingChat.Id, e.ContactId);
+                
+                // Zu diesem Chat navigieren
+                await SelectChat(existingChat.Id);
+            }
+            else
+            {
+                Logger.LogInformation("No existing chat found for contact {ContactId}, creating new one", e.ContactId);
+                  // Create new chat for this contact
+                var contact = await ChatDatabase.GetContactAsync(e.ContactId);
+                if (contact != null)
+                {
+                    var newChat = await ChatService.CreateNewChatAsync(contact);
+                    if (newChat != null)
+                    {
+                        // Update chat list
+                        chats = await ChatDatabase.GetAllChatsAsync();
+                        displayedChats = chats.ToList();
+                        
+                        // Navigate to the new chat
+                        await SelectChat(newChat.Id);
+                    }
+                    else
+                    {
+                        Logger.LogError("Failed to create chat for contact {ContactId}", e.ContactId);
+                    }
+                }
+                else
+                {
+                    Logger.LogError("Contact {ContactId} not found", e.ContactId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during chat navigation for contact {ContactId}: {ErrorMessage}", 
+                e.ContactId, ex.Message);
         }
     }
 }

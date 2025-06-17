@@ -3,9 +3,10 @@ using LocalAiDemo.Shared.Services.Search;
 using Microsoft.Extensions.Logging;
 
 namespace LocalAiDemo.Shared.Services
-{    public interface IChatService
+{
+    public interface IChatService
     {
-        Task<Chat> CreateNewChatAsync(Person person);
+        Task<Chat> CreateNewChatAsync(Contact contact);
 
         Task<Chat?> GetChatAsync(int chatId);
 
@@ -27,7 +28,9 @@ namespace LocalAiDemo.Shared.Services
         /// Searches for relevant segments within a specific chat
         /// </summary>
         Task<List<ChatSegmentSearchResult>> SearchChatSegmentsInChatAsync(int chatId, string query, int limit = 5);
-    }    public class ChatService : IChatService
+    }
+
+    public class ChatService : IChatService
     {
         private readonly IChatDatabaseService _chatDatabase;
         private readonly IEmbeddingService _embeddingService;
@@ -44,28 +47,25 @@ namespace LocalAiDemo.Shared.Services
             _embeddingService = embeddingService;
             _chatSegmentService = chatSegmentService;
             _logger = logger;
-        }
-
-        public async Task<Chat> CreateNewChatAsync(Person person)
+        }        public async Task<Chat> CreateNewChatAsync(Contact contact)
         {
-            _logger.LogInformation("Creating new chat with person: {PersonName} (ID: {PersonId})",
-                person.Name, person.Id);
+            _logger.LogInformation("Creating new chat with contact: {ContactName} (ID: {ContactId})",
+                contact.Name, contact.Id);
 
-            // Create a new chat with the selected person
+            // Create a new chat with the selected contact
             var newChat = new Chat
-            {
-                Title = $"Chat with {person.Name}",
+            {                Title = $"Chat with {contact.Name}",
                 CreatedAt = DateTime.Now,
                 IsActive = true,
-                PersonId = person.Id,
-                Person = person,
+                ContactId = contact.Id,
+                Contact = contact,
                 Messages = new List<ChatMessage>()
             };
 
-            // Add the first message (welcome message from the person)
+            // Add the first message (welcome message from the contact)
             var firstMessage = new ChatMessage
             {
-                Content = $"Hallo, ich bin {person.Name} vom {person.Department}. Wie kann ich dir helfen?",
+                Content = $"Hallo, ich bin {contact.Name} vom {contact.Department}. Wie kann ich dir helfen?",
                 Timestamp = DateTime.Now,
                 IsUser = false
             };
@@ -75,7 +75,7 @@ namespace LocalAiDemo.Shared.Services
             // Generate embedding for the chat
             try
             {
-                string contentToEmbed = $"{person.Name} {person.Department} {newChat.Messages[0].Content}";
+                string contentToEmbed = $"{contact.Name} {contact.Department} {newChat.Messages[0].Content}";
                 newChat.EmbeddingVector = _embeddingService.GenerateEmbedding(contentToEmbed);
                 _logger.LogDebug("Embedding generated successfully");
             }
@@ -190,21 +190,20 @@ namespace LocalAiDemo.Shared.Services
             {
                 var segmentResults = await _chatSegmentService.FindSimilarSegmentsAsync(query, limit);
                 var searchResults = new List<ChatSegmentSearchResult>();                foreach (var result in segmentResults)
-                {
-                    var chat = await _chatDatabase.GetChatAsync(result.Segment.ChatId);
-                    var person = chat?.Person;
+                {                    var chat = await _chatDatabase.GetChatAsync(result.Segment.ChatId);
+                    var contact = chat?.Contact;
 
                     searchResults.Add(new ChatSegmentSearchResult
                     {
                         Segment = result.Segment,
                         SimilarityScore = result.Similarity,
                         Chat = chat,
-                        Person = person,
+                        Contact = contact,
                         HighlightedSnippet = CreateHighlightedSnippet(result.Segment.CombinedContent, query)
                     });
                 }
 
-                _logger.LogInformation("Found {ResultCount} segment results for query: {Query}", 
+                _logger.LogInformation("Found {ResultCount} segment results for query: {Query}",
                     searchResults.Count, query);
                 return searchResults;
             }
@@ -215,29 +214,29 @@ namespace LocalAiDemo.Shared.Services
             }
         }
 
-        public async Task<List<ChatSegmentSearchResult>> SearchChatSegmentsInChatAsync(int chatId, string query, int limit = 5)
+        public async Task<List<ChatSegmentSearchResult>> SearchChatSegmentsInChatAsync(int chatId, string query,
+            int limit = 5)
         {
             _logger.LogDebug("Searching segments in chat {ChatId} with query: {Query}", chatId, query);
 
             try
             {
                 var segmentResults = await _chatSegmentService.FindSimilarSegmentsInChatAsync(chatId, query, limit);
-                var searchResults = new List<ChatSegmentSearchResult>();
-
-                var chat = await _chatDatabase.GetChatAsync(chatId);
-                var person = chat?.Person;                foreach (var result in segmentResults)
+                var searchResults = new List<ChatSegmentSearchResult>();                var chat = await _chatDatabase.GetChatAsync(chatId);
+                var contact = chat?.Contact;
+                foreach (var result in segmentResults)
                 {
                     searchResults.Add(new ChatSegmentSearchResult
                     {
                         Segment = result.Segment,
                         SimilarityScore = result.Similarity,
                         Chat = chat,
-                        Person = person,
+                        Contact = contact,
                         HighlightedSnippet = CreateHighlightedSnippet(result.Segment.CombinedContent, query)
                     });
                 }
 
-                _logger.LogInformation("Found {ResultCount} segment results in chat {ChatId} for query: {Query}", 
+                _logger.LogInformation("Found {ResultCount} segment results in chat {ChatId} for query: {Query}",
                     searchResults.Count, chatId, query);
                 return searchResults;
             }
@@ -266,9 +265,9 @@ namespace LocalAiDemo.Shared.Services
             // Calculate snippet bounds
             int start = Math.Max(0, index - 50);
             int end = Math.Min(content.Length, start + maxLength);
-            
+
             var snippet = content.Substring(start, end - start);
-            
+
             if (start > 0) snippet = "..." + snippet;
             if (end < content.Length) snippet = snippet + "...";
 

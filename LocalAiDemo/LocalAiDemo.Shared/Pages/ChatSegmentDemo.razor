@@ -48,7 +48,7 @@
                                                 <small>@chat.Messages.Count Nachrichten</small>
                                             </div>
                                             <p class="mb-1">
-                                                <strong>Person:</strong> @(chat.Person?.Name ?? "Unbekannt")
+                                                <strong>Person:</strong> @(chat.Contact?.Name ?? "Unbekannt")
                                             </p>
                                             <small>Erstellt: @chat.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
                                         </a>

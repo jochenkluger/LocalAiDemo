@@ -152,12 +152,18 @@ namespace LocalAiDemo.Shared.Services
                 _chatClient = _executor.AsChatClient();
 
                 // Chat History initialisieren
-                _chatHistory.Clear();
-
-                // Systemnachricht
+                _chatHistory.Clear();                // Systemnachricht
                 var systemMessage = Constants.SystemMessage + "\n\n";
                 systemMessage +=
-                    "Du kannst die verfügbaren Funktionen verwenden, um Nachrichten zu erstellen und Kontakte zu verwalten. Verwende die Funktionen, wenn der Benutzer danach fragt.";
+                    "Du kannst die verfügbaren Funktionen verwenden, um Nachrichten zu erstellen und Kontakte zu verwalten.\n\n" +
+                    "WICHTIGE REGELN für Function Calls:\n" +
+                    "- Verwende Funktionen nur, wenn du sicher bist, dass alle erforderlichen Informationen vorhanden sind\n" +
+                    "- Wenn ein Benutzer nach einem Kontakt fragt, der nicht existiert, antworte normal ohne Function Call\n" +
+                    "- Wenn du unsicher bist oder mehr Informationen benötigst, frage den Benutzer nach Details\n" +
+                    "- Function Calls sollten nur verwendet werden, wenn du eine konkrete Aktion ausführen kannst\n" +
+                    "- NACH einem Function Call: Gib IMMER eine normale, freundliche Antwort an den Benutzer zurück\n" +
+                    "- Erkläre dem Benutzer, was du getan hast, in normaler Sprache\n" +
+                    "- Andernfalls antworte normal als hilfsreicher Assistent.";
 
                 _chatHistory.Add(new ChatMessage(ChatRole.System, systemMessage));
                 _chatHistory.Add(new ChatMessage(ChatRole.Assistant, Constants.AgentWelcomeMessage));

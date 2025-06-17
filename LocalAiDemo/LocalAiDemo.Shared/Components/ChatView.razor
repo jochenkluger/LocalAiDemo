@@ -169,9 +169,7 @@
             // Get AI response
             Logger.LogInformation("Getting AI response");
             var response = await AiAssistant.GetResponseAsync(userMessageContent);
-            Logger.LogInformation("Received AI response: {Length} characters", response?.Length ?? 0);
-
-            // Add AI response using ChatService
+            Logger.LogInformation("Received AI response: {Length} characters", response?.Length ?? 0);            // Add AI response using ChatService
             updatedChat = await ChatService.AddMessageToChatAsync(CurrentChat.Id, response ?? "No response received", false);
             
             // Update the current chat with the AI response

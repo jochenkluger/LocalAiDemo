@@ -115,7 +115,7 @@ namespace LocalAiDemo.Shared.Services.Generation
             _logger.LogInformation("Starte Inferenz für Nachricht: {Message}", message);
 
             // Loop für mehrere Function Calls nacheinander
-            const int maxFunctionCalls = 10; // Verhindert Endlosschleifen
+            const int maxFunctionCalls = 15; // Verhindert Endlosschleifen
             int functionCallCount = 0;
             var executedFunctions = new List<string>(); // Tracking der ausgeführten Funktionen
 

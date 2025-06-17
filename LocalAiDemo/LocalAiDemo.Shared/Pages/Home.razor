@@ -202,24 +202,14 @@
     private List<Chat> chats = new List<Chat>();
     private List<Chat> displayedChats = new List<Chat>();
     private List<Contact> availableContacts = new List<Contact>();
-    
-    // Eigener Chat für den Assistenten
+      // Eigener Chat für den Assistenten
     private Chat assistantChat = new Chat 
     { 
         Id = -1, 
         Title = "KI-Assistent Chat",
         CreatedAt = DateTime.Now,
         IsActive = true,
-        Messages = new List<ChatMessage>
-        {
-            new ChatMessage
-            {
-                Id = 1,
-                Content = "Hallo, ich bin der KI-Assistent. Wie kann ich behilflich sein?",
-                Timestamp = DateTime.Now,
-                IsUser = false
-            }
-        }
+        Messages = new List<ChatMessage>()
     };
     
     // Measurements from service
@@ -505,22 +495,28 @@
         {
             Logger.LogError(ex, "Fehler bei der Verarbeitung der erkannten Sprache: {ErrorMessage}", ex.Message);
         }
-    }      private async Task SpeakAssistantResponse(string response)
+    }    private async Task SpeakAssistantResponse(string response)
     {
         try
         {
             Logger.LogInformation("Spreche Assistenten-Antwort mit TTS: {ResponseLength} Zeichen", response.Length);
-            
-            // UI-Status aktualisieren
+              // UI-Status aktualisieren (thread-safe)
             isSpeaking = true;
-            StateHasChanged();
-            
-            // Verwende den injizierten TTS-Service
+            await InvokeAsync(() => StateHasChanged());
+              // Verwende den injizierten TTS-Service
             if (TtsService != null)
             {
                 try
                 {
-                    await TtsService.SpeakAsync(response);
+                    // Prüfe, ob es ein BrowserTtsService ist und verwende die erweiterte Methode
+                    if (TtsService is LocalAiDemo.Shared.Services.Tts.BrowserTtsService browserTtsService)
+                    {
+                        await browserTtsService.SpeakAsync(response, JSRuntimeForTts);
+                    }
+                    else
+                    {
+                        await TtsService.SpeakAsync(response);
+                    }
                     Logger.LogInformation("TTS erfolgreich gestartet für {Length} Zeichen", response.Length);
                 }
                 catch (Exception ex)
@@ -568,30 +564,35 @@
             {
                 Logger.LogWarning("Weder TTS-Service noch JSRuntime verfügbar für TTS");
             }
-            
-            // UI-Status zurücksetzen (mit Verzögerung)
+              // UI-Status zurücksetzen (mit Verzögerung, thread-safe)
             await Task.Delay(Math.Min(3000, response.Length * 40)); // ~40ms pro Zeichen, max 3 Sekunden
             isSpeaking = false;
-            StateHasChanged();
-        }
-        catch (Exception ex)
+            await InvokeAsync(() => StateHasChanged());
+        }        catch (Exception ex)
         {
             Logger.LogError(ex, "Fehler beim Sprechen der Assistenten-Antwort: {ErrorMessage}", ex.Message);
             isSpeaking = false;
-            StateHasChanged();
+            await InvokeAsync(() => StateHasChanged());
         }
-    }    private async Task StopTts()
+    }private async Task StopTts()
     {
         try
         {
             if (isSpeaking)
-            {
-                // Versuche zuerst den TTS-Service zu verwenden
+            {                // Versuche zuerst den TTS-Service zu verwenden
                 if (TtsService != null)
                 {
                     try
                     {
-                        await TtsService.StopSpeakingAsync();
+                        // Prüfe, ob es ein BrowserTtsService ist und verwende die erweiterte Methode
+                        if (TtsService is LocalAiDemo.Shared.Services.Tts.BrowserTtsService browserTtsService)
+                        {
+                            await browserTtsService.StopSpeakingAsync(JSRuntimeForTts);
+                        }
+                        else
+                        {
+                            await TtsService.StopSpeakingAsync();
+                        }
                         Logger.LogInformation("TTS-Ausgabe über Service gestoppt");
                     }
                     catch (Exception ex)
@@ -1153,15 +1154,40 @@
                 
                 // UI Update im Hauptthread
                 InvokeAsync(StateHasChanged);
-            });
-
-            isTextGenerationInitializing = false;
+            });            isTextGenerationInitializing = false;
             isTextGenerationInitialized = true;
             textGenerationProgress = 100;
             textGenerationStatus = "KI-Modell bereit";
             
             Logger.LogInformation("TextGenerationService erfolgreich initialisiert");
+            await InvokeAsync(StateHasChanged);            // Füge die Willkommensnachricht zum Assistant Chat hinzu
+            var welcomeMessage = new ChatMessage
+            {
+                Id = 1,
+                Content = Constants.AgentWelcomeMessage,
+                Timestamp = DateTime.Now,
+                IsUser = false
+            };
+            assistantChat.Messages.Add(welcomeMessage);
+
+            // UI nochmals aktualisieren um die Willkommensnachricht anzuzeigen
             await InvokeAsync(StateHasChanged);
+
+            // Warte kurz und spreche dann die Willkommensnachricht
+            // (TTS wird verzögert aufgerufen, damit das System vollständig initialisiert ist)
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000); // 2 Sekunden warten
+                try
+                {
+                    Logger.LogInformation("Spreche AI Assistant Willkommensnachricht (verzögert)");
+                    await SpeakAssistantResponse(Constants.AgentWelcomeMessage);
+                }
+                catch (Exception ttsEx)
+                {
+                    Logger.LogError(ttsEx, "Fehler beim Sprechen der Willkommensnachricht: {ErrorMessage}", ttsEx.Message);
+                }
+            });
         }
         catch (Exception ex)
         {

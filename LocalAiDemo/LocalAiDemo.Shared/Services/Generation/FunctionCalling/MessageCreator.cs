@@ -7,8 +7,7 @@ using LocalAiDemo.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace LocalAiDemo.Shared.Services.FunctionCalling
-{
-    /// <summary>
+{    /// <summary>
     /// Implementierung des IMessageCreator-Interface für Testzwecke
     /// </summary>
     public class MessageCreator : IMessageCreator
@@ -17,20 +16,21 @@ namespace LocalAiDemo.Shared.Services.FunctionCalling
         private readonly IContactService _contactService;
         private readonly IChatDatabaseService _chatDatabaseService;
         private readonly IChatService _chatService;
+        private readonly IMessageInjectionService _messageInjectionService;
 
         public MessageCreator(
             ILogger<MessageCreator> logger,
             IContactService contactService,
             IChatDatabaseService chatDatabaseService,
-            IChatService chatService)
+            IChatService chatService,
+            IMessageInjectionService messageInjectionService)
         {
             _logger = logger;
             _contactService = contactService;
             _chatDatabaseService = chatDatabaseService;
             _chatService = chatService;
-        }
-
-        /// <summary>
+            _messageInjectionService = messageInjectionService;
+        }        /// <summary>
         /// Erstellt eine echte Chat-Nachricht für den angegebenen Kontakt
         /// </summary>
         /// <param name="contactId">ID des Empfänger-Kontakts</param>
@@ -48,44 +48,26 @@ namespace LocalAiDemo.Shared.Services.FunctionCalling
                     return $"Fehler: Kontakt mit ID {contactId} nicht gefunden";
                 }
 
-                // Chat für den Kontakt abrufen oder erstellen
-                var chat = await _chatDatabaseService.GetOrCreateChatForContactAsync(contactId);
-                if (chat == null)
-                {
-                    _logger.LogError("Konnte Chat für Kontakt {ContactId} nicht erstellen", contactId);
-                    return "Fehler: Chat konnte nicht erstellt werden";
-                } // Nachricht über ChatService hinzufügen
+                _logger.LogInformation(
+                    "Bereite Nachricht für Kontakt {ContactName} (ID: {ContactId}) vor: {MessageText}",
+                    contact.Name, contact.Id, messageText);
 
-                var updatedChat = await _chatService.AddMessageToChatAsync(chat.Id, messageText, isUser: false);
+                // Verwende MessageInjectionService um zur entsprechenden Chat-Ansicht zu navigieren
+                _messageInjectionService.NavigateToContactChat(contactId, contact.Name);
 
-                if (updatedChat != null)
-                {
-                    // Get the latest message from the chat
-                    var latestMessage = updatedChat.Messages?.LastOrDefault();
-                    if (latestMessage != null)
-                    {
-                        _logger.LogInformation(
-                            "Nachricht mit ID {MessageId} erfolgreich erstellt für Kontakt {ContactName} (ID: {ContactId}) in Chat {ChatId}: {MessageText}",
-                            latestMessage.Id, contact.Name, contact.Id, chat.Id, messageText);
+                // Füge die Nachricht in die Chat-TextBox ein
+                _messageInjectionService.InjectMessage(messageText, contactId, contact.Name);
 
-                        // Update chat title if needed
-                        if (string.IsNullOrEmpty(chat.Title) || chat.Title.StartsWith("Chat with Contact"))
-                        {
-                            chat.Title = $"Chat mit {contact.Name}";
-                            await _chatDatabaseService.SaveChatAsync(chat);
-                        }
+                _logger.LogInformation(
+                    "Nachricht erfolgreich für Überprüfung vorbereitet für Kontakt {ContactName} (ID: {ContactId})",
+                    contact.Name, contact.Id);
 
-                        return $"Die Nachricht wurde erfolgreich erstellt mit Id {latestMessage.Id}";
-                    }
-                }
-
-                _logger.LogError("Nachricht konnte nicht zur Datenbank hinzugefügt werden");
-                return "Fehler: Nachricht konnte nicht gespeichert werden";
+                return $"Nachricht für {contact.Name} wurde vorbereitet und in die Chat-Ansicht eingefügt. Sie können die Nachricht nun überprüfen und senden.";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Fehler beim Erstellen der Nachricht für Kontakt {ContactId}", contactId);
-                return $"Fehler beim Erstellen der Nachricht: {ex.Message}";
+                _logger.LogError(ex, "Fehler beim Vorbereiten der Nachricht für Kontakt {ContactId}", contactId);
+                return $"Fehler beim Vorbereiten der Nachricht: {ex.Message}";
             }
         }
 

@@ -3,18 +3,18 @@ using Microsoft.JSInterop;
 using System;
 using System.Threading.Tasks;
 
-namespace LocalAiDemo.Shared.Services.Sst
+namespace LocalAiDemo.Shared.Services.Stt
 {
     /// <summary>
     /// Implementierung des SST-Services mit Whisper.NET für lokale Spracherkennung
     /// </summary>
-    public class WhisperSstService : SstServiceBase
+    public class WhisperSttService : SstServiceBase
     {
         private readonly WhisperService _whisperService;
         private bool _isRecording = false;
         private bool _initialized = false;
 
-        public WhisperSstService(WhisperService whisperService, ILogger<WhisperSstService> logger)
+        public WhisperSttService(WhisperService whisperService, ILogger<WhisperSttService> logger)
             : base(logger)
         {
             _whisperService = whisperService;
@@ -47,22 +47,25 @@ namespace LocalAiDemo.Shared.Services.Sst
             {
                 try
                 {
-                    Logger.LogInformation("Initializing Whisper recording script...");                    // Test if JavaScript calls are possible
+                    Logger.LogInformation(
+                        "Initializing Whisper recording script..."); // Test if JavaScript calls are possible
                     await jsRuntime.InvokeVoidAsync("eval", "console.log('Whisper: JS context available');");
 
                     // Instead of injecting JavaScript, use the existing whisper-recording.js file
                     // The JavaScript file should already be loaded via the index.html script tag
-                    
+
                     // Add a small delay to ensure scripts are loaded
                     await Task.Delay(500);
-                    
+
                     // Check if the whisper-recording.js file loaded properly
-                    await jsRuntime.InvokeVoidAsync("eval", "console.log('Checking if whisper-recording.js loaded:', typeof window.isWhisperRecordingSupported);");                    // Test if the whisper recording functions are available
+                    await jsRuntime.InvokeVoidAsync("eval",
+                        "console.log('Checking if whisper-recording.js loaded:', typeof window.isWhisperRecordingSupported);"); // Test if the whisper recording functions are available
                     try
                     {
                         // First check if the function exists
-                        await jsRuntime.InvokeVoidAsync("eval", "console.log('Testing function availability:', typeof window.isWhisperRecordingSupported);");
-                        
+                        await jsRuntime.InvokeVoidAsync("eval",
+                            "console.log('Testing function availability:', typeof window.isWhisperRecordingSupported);");
+
                         var isSupported = await jsRuntime.InvokeAsync<bool>("isWhisperRecordingSupported");
                         Logger.LogInformation("Whisper recording support check: {IsSupported}", isSupported);
                     }
@@ -70,7 +73,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                     {
                         Logger.LogError(ex,
                             "Whisper recording functions not available. Trying to load script dynamically.");
-                        
+
                         // Try to load the script dynamically
                         try
                         {
@@ -84,18 +87,19 @@ namespace LocalAiDemo.Shared.Services.Sst
                                     document.head.appendChild(script);
                                 }
                             ");
-                            
+
                             // Wait a bit for the script to load
                             await Task.Delay(1000);
-                            
+
                             // Try again
                             var isSupported = await jsRuntime.InvokeAsync<bool>("isWhisperRecordingSupported");
-                            Logger.LogInformation("Whisper recording support check after dynamic load: {IsSupported}", isSupported);
+                            Logger.LogInformation("Whisper recording support check after dynamic load: {IsSupported}",
+                                isSupported);
                         }
                         catch (Exception dynamicEx)
                         {
                             Logger.LogError(dynamicEx, "Failed to load whisper-recording.js dynamically");
-                            
+
                             // Try to check what functions are available
                             try
                             {
@@ -111,7 +115,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                             {
                                 Logger.LogError(debugEx, "Error during function availability debugging");
                             }
-                            
+
                             _initialized = false;
                             return;
                         }
@@ -191,10 +195,12 @@ namespace LocalAiDemo.Shared.Services.Sst
                 Logger.LogError(ex, "Error initializing Whisper speech recognition");
                 return false;
             }
-        }        public override async Task StartSpeechRecognitionAsync(IJSRuntime jsRuntime)
+        }
+
+        public override async Task StartSpeechRecognitionAsync(IJSRuntime jsRuntime)
         {
             Logger.LogInformation("StartSpeechRecognitionAsync called - _isRecording: {IsRecording}", _isRecording);
-            
+
             if (_isRecording)
             {
                 Logger.LogWarning("Speech recognition is already running");
@@ -316,7 +322,9 @@ namespace LocalAiDemo.Shared.Services.Sst
         public override string GetProviderName()
         {
             return "Whisper";
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Called from JavaScript when audio recording is completed This method will be invoked by
         /// the browser with the recorded audio data
         /// </summary>
@@ -341,15 +349,16 @@ namespace LocalAiDemo.Shared.Services.Sst
         }
 
         /// <summary>
-        /// Called from JavaScript when audio recording is completed - accepts base64 encoded audio data
-        /// This method will be invoked by the browser with the recorded audio data as base64 string
+        /// Called from JavaScript when audio recording is completed - accepts base64 encoded audio
+        /// data This method will be invoked by the browser with the recorded audio data as base64 string
         /// </summary>
         [JSInvokable]
         public async Task<string> ProcessAudioDataBase64(string base64AudioData)
         {
             try
             {
-                Logger.LogInformation("Processing base64 audio data with Whisper (Length: {Length} chars)", base64AudioData.Length);
+                Logger.LogInformation("Processing base64 audio data with Whisper (Length: {Length} chars)",
+                    base64AudioData.Length);
 
                 // Convert base64 string back to byte array
                 var audioData = Convert.FromBase64String(base64AudioData);

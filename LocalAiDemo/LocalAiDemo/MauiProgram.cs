@@ -11,8 +11,8 @@ using System.Reflection;
 using LocalAiDemo.Shared.Services.FunctionCalling;
 using LocalAiDemo.Shared.Services.Search;
 using LocalAiDemo.Shared.Services.Tts;
-using LocalAiDemo.Shared.Services.Sst;
 using LocalAiDemo.Shared.Services.Generation;
+using LocalAiDemo.Shared.Services.Stt;
 
 namespace LocalAiDemo;
 
@@ -51,7 +51,7 @@ public static class MauiProgram
         RegisterTtsServices(builder);
 
         // Register Speech-to-Text services
-        RegisterSstServices(builder);
+        RegisterSttServices(builder);
 
         // Configure logging
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
@@ -189,7 +189,7 @@ public static class MauiProgram
         }
     }
 
-    private static void RegisterSstServices(MauiAppBuilder builder)
+    private static void RegisterSttServices(MauiAppBuilder builder)
     {
         try
         {
@@ -198,46 +198,46 @@ public static class MauiProgram
             // Get preferred provider from configuration
             var config = builder.Services.BuildServiceProvider().GetService<IOptions<AppConfiguration>>()?.Value;
             var preferredProvider = config?.SttProvider ?? "Browser";
-            logger.LogInformation("Using SST provider from configuration: {Provider}", preferredProvider);
+            logger.LogInformation("Using STT provider from configuration: {Provider}", preferredProvider);
 
             // Always register WhisperService as it's needed by WhisperSstService
             builder.Services.AddSingleton<WhisperService>();
 
-            // Register the correct SST service based on configuration
+            // Register the correct STT service based on configuration
             if (preferredProvider == "Whisper")
             {
-                // Register Whisper SST service as the primary service
-                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.WhisperSstService>();
+                // Register Whisper STT service as the primary service
+                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Stt.WhisperSttService>();
                 builder.Services
-                    .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
-                        LocalAiDemo.Shared.Services.Sst.WhisperSstService>();
+                    .AddSingleton<LocalAiDemo.Shared.Services.Stt.ISttService,
+                        LocalAiDemo.Shared.Services.Stt.WhisperSttService>();
                 logger.LogInformation("Using Whisper SST provider as configured in appsettings.json");
             }
             else
             {
-                // Register browser SST service as the primary service (default)
-                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+                // Register browser STT service as the primary service (default)
+                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Stt.BrowserSttService>();
                 builder.Services
-                    .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
-                        LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+                    .AddSingleton<LocalAiDemo.Shared.Services.Stt.ISttService,
+                        LocalAiDemo.Shared.Services.Stt.BrowserSttService>();
                 logger.LogInformation("Using Browser SST provider as configured in appsettings.json");
             }
 
-            // Always register BrowserSstService as a separate service for direct injection if needed
-            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+            // Always register BrowserSttService as a separate service for direct injection if needed
+            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Stt.BrowserSttService>();
 
-            logger.LogInformation("SST services registered successfully");
+            logger.LogInformation("STT services registered successfully");
         }
         catch (Exception ex)
         {
-            var logger = new LoggerFactory().CreateLogger("SstConfig");
-            logger.LogError(ex, "Error registering SST services: {Message}", ex.Message);
+            var logger = new LoggerFactory().CreateLogger("SttConfig");
+            logger.LogError(ex, "Error registering STT services: {Message}", ex.Message);
 
-            // Fallback to Browser SST service
-            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+            // Fallback to Browser STT service
+            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Stt.BrowserSttService>();
             builder.Services
-                .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
-                    LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+                .AddSingleton<LocalAiDemo.Shared.Services.Stt.ISttService,
+                    LocalAiDemo.Shared.Services.Stt.BrowserSttService>();
         }
     }
 }

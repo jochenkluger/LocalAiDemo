@@ -1,21 +1,26 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
-namespace LocalAiDemo.Shared.Services.Sst
+namespace LocalAiDemo.Shared.Services.Stt
 {
-    public interface ISstService
+    public interface ISttService
     {
-        Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime, DotNetObjectReference<T> dotNetObjectReference) where T : class;
+        Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime,
+            DotNetObjectReference<T> dotNetObjectReference) where T : class;
+
         Task StartSpeechRecognitionAsync(IJSRuntime jsRuntime);
+
         Task StopSpeechRecognitionAsync(IJSRuntime jsRuntime);
+
         Task<bool> IsAvailableAsync(IJSRuntime jsRuntime);
+
         string GetProviderName();
     }
 
     /// <summary>
     /// Abstrakte Basisklasse für SST-Dienste, die gemeinsame Funktionalität bereitstellt
     /// </summary>
-    public abstract class SstServiceBase : ISstService
+    public abstract class SstServiceBase : ISttService
     {
         protected readonly ILogger Logger;
 
@@ -24,10 +29,15 @@ namespace LocalAiDemo.Shared.Services.Sst
             Logger = logger;
         }
 
-        public abstract Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime, DotNetObjectReference<T> dotNetObjectReference) where T : class;
+        public abstract Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime,
+            DotNetObjectReference<T> dotNetObjectReference) where T : class;
+
         public abstract Task StartSpeechRecognitionAsync(IJSRuntime jsRuntime);
+
         public abstract Task StopSpeechRecognitionAsync(IJSRuntime jsRuntime);
+
         public abstract Task<bool> IsAvailableAsync(IJSRuntime jsRuntime);
+
         public abstract string GetProviderName();
     }
 }

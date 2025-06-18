@@ -3,28 +3,31 @@ using Microsoft.JSInterop;
 using System;
 using System.Threading.Tasks;
 
-namespace LocalAiDemo.Shared.Services.Sst
+namespace LocalAiDemo.Shared.Services.Stt
 {
-    public class BrowserSstService : SstServiceBase
+    public class BrowserSttService : SstServiceBase
     {
-        public BrowserSstService(ILogger<BrowserSstService> logger)
+        public BrowserSttService(ILogger<BrowserSttService> logger)
             : base(logger)
         {
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Initialisiert die Spracherkennung mit dem übergebenen DotNetObjectReference
         /// </summary>
         /// <param name="jsRuntime">Die IJSRuntime-Instanz</param>
         /// <param name="dotNetObjectReference">Der DotNetObjectReference für Callbacks</param>
         /// <returns>True wenn erfolgreich initialisiert</returns>
-        public override async Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime, DotNetObjectReference<T> dotNetObjectReference)
+        public override async Task<bool> InitializeSpeechRecognitionAsync<T>(IJSRuntime jsRuntime,
+            DotNetObjectReference<T> dotNetObjectReference)
         {
             try
             {
                 Logger.LogInformation("Initializing speech recognition");
-                
+
                 // Initialisiere die Spracherkennung mit dem DotNetObjectReference (script is loaded statically)
                 var initialized = await jsRuntime.InvokeAsync<bool>("initSpeechRecognition", dotNetObjectReference);
-                
+
                 if (initialized)
                 {
                     Logger.LogInformation("Speech recognition initialized successfully");
@@ -79,7 +82,9 @@ namespace LocalAiDemo.Shared.Services.Sst
                 Logger.LogError(ex, "Error stopping speech recognition: {ErrorMessage}", ex.Message);
                 throw;
             }
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Prüft ob Spracherkennung im Browser verfügbar ist
         /// </summary>
         /// <param name="jsRuntime">Die IJSRuntime-Instanz</param>
@@ -93,7 +98,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                 {
                     try
                     {
-                        var isAvailable = await jsRuntime.InvokeAsync<bool>("eval", 
+                        var isAvailable = await jsRuntime.InvokeAsync<bool>("eval",
                             "'webkitSpeechRecognition' in window || 'SpeechRecognition' in window");
                         Logger.LogInformation("Speech recognition availability: {IsAvailable}", isAvailable);
                         return isAvailable;
@@ -105,6 +110,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                         continue;
                     }
                 }
+
                 return false;
             }
             catch (Exception ex)
@@ -113,7 +119,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                 return false;
             }
         }
-        
+
         public override string GetProviderName()
         {
             return "Browser Speech Recognition";

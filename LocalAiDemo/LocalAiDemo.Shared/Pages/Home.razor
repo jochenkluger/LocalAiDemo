@@ -5,7 +5,7 @@
 @using LocalAiDemo.Shared.Services.Generation
 @using LocalAiDemo.Shared.Services.Search
 @using LocalAiDemo.Shared.Services.Tts
-@using LocalAiDemo.Shared.Services.Sst
+@using LocalAiDemo.Shared.Services.Stt
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
@@ -19,7 +19,7 @@
 @inject ILogger<Home> Logger
 @inject ITextGenerationService TextGenerationService
 @inject ITtsService TtsService
-@inject ISstService SstService
+@inject ISttService SttService
 @implements IDisposable
 
 <PageTitle>Chat Demo</PageTitle>
@@ -246,10 +246,10 @@
                 
                 // Initialize speech recognition with our object reference
                 Logger.LogInformation("Initializing speech recognition");
-                var speechRecognitionAvailable = await SstService.IsAvailableAsync(JSRuntime);
+                var speechRecognitionAvailable = await SttService.IsAvailableAsync(JSRuntime);
                 if (speechRecognitionAvailable)
                 {
-                    await SstService.InitializeSpeechRecognitionAsync(JSRuntime, objRef);
+                    await SttService.InitializeSpeechRecognitionAsync(JSRuntime, objRef);
                     Logger.LogInformation("Speech recognition initialized");
                 }
                 else
@@ -272,7 +272,7 @@
         {
             Logger.LogInformation("Starte Sprachaufnahme");
             isRecording = true;
-            await SstService.StartSpeechRecognitionAsync(JSRuntime);
+            await SttService.StartSpeechRecognitionAsync(JSRuntime);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -289,7 +289,7 @@
             
             Logger.LogInformation("Stoppe Sprachaufnahme");
             isRecording = false;
-            await SstService.StopSpeechRecognitionAsync(JSRuntime);
+            await SttService.StopSpeechRecognitionAsync(JSRuntime);
             StateHasChanged();
         }
         catch (Exception ex)
@@ -355,8 +355,8 @@
         {
             Logger.LogInformation("Processing audio data with Whisper (Length: {Length} bytes)", audioData.Length);
             
-            // Get the Whisper service from the injected SST service
-            if (SstService is WhisperSstService whisperService)
+            // Get the Whisper service from the injected STT service
+            if (SttService is WhisperSttService whisperService)
             {
                 // Use the Whisper service to process the audio data
                 var transcription = await whisperService.ProcessAudioData(audioData);
@@ -365,7 +365,7 @@
             }
             else
             {
-                Logger.LogWarning("SST Service is not a Whisper service, cannot process audio data");
+                Logger.LogWarning("STT Service is not a Whisper service, cannot process audio data");
                 return string.Empty;
             }
         }
@@ -409,7 +409,8 @@
             Logger.LogError(ex, "Fehler beim Sprechen der Assistenten-Antwort: {ErrorMessage}", ex.Message);
             isSpeaking = false;
             await InvokeAsync(() => StateHasChanged());
-        }    }
+        }
+    }
     
     private async Task StopTts()
     {

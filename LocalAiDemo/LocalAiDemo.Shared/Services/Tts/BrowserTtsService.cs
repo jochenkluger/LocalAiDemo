@@ -20,18 +20,18 @@ namespace LocalAiDemo.Shared.Services.Tts
         {
             try
             {
-                // Check if we're in a valid JavaScript context
-                // In MAUI WebView or Blazor WebAssembly, this should be true
-                // In server-side rendering or other contexts, this will be false
+                // Check if we're in a valid JavaScript context In MAUI WebView or Blazor
+                // WebAssembly, this should be true In server-side rendering or other contexts, this
+                // will be false
                 var runtimeType = jsRuntime.GetType().Name;
                 Logger.LogDebug("JSRuntime type: {RuntimeType}", runtimeType);
-                
+
                 // Common JSRuntime types that support JavaScript interop:
                 // - WebViewJSRuntime (MAUI)
                 // - RemoteJSRuntime (Blazor WebAssembly)
                 // - WebAssemblyJSRuntime (Blazor WebAssembly)
-                return runtimeType.Contains("WebView") || 
-                       runtimeType.Contains("WebAssembly") || 
+                return runtimeType.Contains("WebView") ||
+                       runtimeType.Contains("WebAssembly") ||
                        runtimeType.Contains("Remote");
             }
             catch (Exception ex)
@@ -39,10 +39,12 @@ namespace LocalAiDemo.Shared.Services.Tts
                 Logger.LogDebug(ex, "Fehler bei der Erkennung des WebView-Kontexts");
                 return false;
             }
-        }        private async Task EnsureInitializedAsync(IJSRuntime jsRuntime)
+        }
+
+        private async Task EnsureInitializedAsync(IJSRuntime jsRuntime)
         {
             var isWebViewContext = CheckWebViewContext(jsRuntime);
-            
+
             if (!_initialized && isWebViewContext)
             {
                 try
@@ -65,7 +67,7 @@ namespace LocalAiDemo.Shared.Services.Tts
                                 if ('speechSynthesis' in window) {
                                     // Abrufen der verfügbaren Stimmen
                                     window.ttsVoices = window.speechSynthesis.getVoices();
-                                    
+
                                     // In Chrome werden die Stimmen asynchron geladen
                                     if (window.ttsVoices.length === 0) {
                                         window.speechSynthesis.addEventListener('voiceschanged', function() {
@@ -75,7 +77,7 @@ namespace LocalAiDemo.Shared.Services.Tts
                                     } else {
                                         console.log('TTS: Geladen ' + window.ttsVoices.length + ' Stimmen');
                                     }
-                                    
+
                                     console.log('Browser TTS erfolgreich initialisiert');
                                     return true;
                                 } else {
@@ -95,21 +97,21 @@ namespace LocalAiDemo.Shared.Services.Tts
                                     console.error('TTS ist nicht verfügbar');
                                     return false;
                                 }
-                                
+
                                 // Stoppe aktuelle Sprache, falls vorhanden
                                 if (window.currentUtterance) {
                                     window.stopSpeaking();
                                 }
-                                
+
                                 // Erstelle neue Äußerung
                                 var utterance = new SpeechSynthesisUtterance(text);
                                 window.currentUtterance = utterance;
-                                
+
                                 // Konfiguriere Stimme (bevorzuge deutsche Stimmen)
                                 var voices = window.speechSynthesis.getVoices();
                                 var germanVoice = voices.find(voice => voice.lang === 'de-DE' && voice.localService);
                                 var anyGermanVoice = voices.find(voice => voice.lang.startsWith('de'));
-                                
+
                                 if (germanVoice) {
                                     utterance.voice = germanVoice;
                                     console.log('TTS: Verwende lokale deutsche Stimme: ' + germanVoice.name);
@@ -119,24 +121,24 @@ namespace LocalAiDemo.Shared.Services.Tts
                                 } else {
                                     console.log('TTS: Keine deutsche Stimme gefunden, verwende Standard-Stimme');
                                 }
-                                
+
                                 // Konfiguriere Sprachparameter
                                 utterance.lang = 'de-DE';
                                 utterance.rate = 1.0;
                                 utterance.pitch = 1.0;
                                 utterance.volume = 1.0;
-                                
+
                                 // Event-Handler
                                 utterance.onend = function() {
                                     console.log('TTS: Sprechen beendet');
                                     window.currentUtterance = null;
                                 };
-                                
+
                                 utterance.onerror = function(event) {
                                     console.error('TTS Fehler:', event.error);
                                     window.currentUtterance = null;
                                 };
-                                
+
                                 // Starte Sprachausgabe
                                 window.speechSynthesis.speak(utterance);
                                 console.log('TTS: Spreche Text: ' + text);
@@ -162,7 +164,7 @@ namespace LocalAiDemo.Shared.Services.Tts
                                 return false;
                             }
                         };
-                    ");                    // Kurze Verzögerung für die JavaScript-Ausführung
+                    "); // Kurze Verzögerung für die JavaScript-Ausführung
                     await Task.Delay(100);
 
                     // Initialisiere den TTS-Dienst
@@ -171,7 +173,8 @@ namespace LocalAiDemo.Shared.Services.Tts
                     _initialized = isAvailable;
                     Logger.LogInformation("Browser TTS initialisiert: {Available}", isAvailable);
                 }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") || ex.Message.Contains("JavaScript"))
+                catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") ||
+                                                           ex.Message.Contains("JavaScript"))
                 {
                     Logger.LogWarning("JavaScript-Kontext nicht verfügbar für TTS: {Message}", ex.Message);
                     _initialized = false;
@@ -191,24 +194,28 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogDebug("TTS-Initialisierung übersprungen - kein WebView-Kontext");
             }
-        }        public override Task SpeakAsync(string text)
+        }
+
+        public override Task SpeakAsync(string text)
         {
             // Diese Überladung sollte für Browser TTS nicht verwendet werden
             Logger.LogError("SpeakAsync ohne IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
             throw new InvalidOperationException(
                 "Browser TTS Service benötigt einen IJSRuntime Parameter. " +
                 "Verwenden Sie SpeakAsync(string text, IJSRuntime jsRuntime) stattdessen.");
-        }        public override async Task SpeakAsync(string text, IJSRuntime? jsRuntime)
+        }
+
+        public override async Task SpeakAsync(string text, IJSRuntime? jsRuntime)
         {
             if (jsRuntime == null)
             {
                 Logger.LogError("SpeakAsync mit null IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
-                throw new ArgumentNullException(nameof(jsRuntime), 
+                throw new ArgumentNullException(nameof(jsRuntime),
                     "Browser TTS Service benötigt einen gültigen IJSRuntime Parameter.");
             }
-            
+
             var isWebViewContext = CheckWebViewContext(jsRuntime);
-            
+
             if (!isWebViewContext)
             {
                 Logger.LogDebug("TTS übersprungen - kein WebView-Kontext verfügbar");
@@ -228,7 +235,8 @@ namespace LocalAiDemo.Shared.Services.Tts
                 Logger.LogInformation("Spreche Text mit Browser TTS: {Text}", text);
                 await jsRuntime.InvokeVoidAsync("speakText", text);
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") || ex.Message.Contains("JavaScript"))
+            catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") ||
+                                                       ex.Message.Contains("JavaScript"))
             {
                 Logger.LogWarning("JavaScript-Kontext nicht verfügbar für TTS: {Message}", ex.Message);
             }
@@ -240,24 +248,29 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogError(ex, "Fehler beim Sprechen mit Browser TTS: {Text}", text);
             }
-        }        public override Task StopSpeakingAsync()
+        }
+
+        public override Task StopSpeakingAsync()
         {
             // Diese Überladung sollte für Browser TTS nicht verwendet werden
             Logger.LogError("StopSpeakingAsync ohne IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
             throw new InvalidOperationException(
                 "Browser TTS Service benötigt einen IJSRuntime Parameter. " +
                 "Verwenden Sie StopSpeakingAsync(IJSRuntime jsRuntime) stattdessen.");
-        }        public override async Task StopSpeakingAsync(IJSRuntime? jsRuntime)
+        }
+
+        public override async Task StopSpeakingAsync(IJSRuntime? jsRuntime)
         {
             if (jsRuntime == null)
             {
-                Logger.LogError("StopSpeakingAsync mit null IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
-                throw new ArgumentNullException(nameof(jsRuntime), 
+                Logger.LogError(
+                    "StopSpeakingAsync mit null IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
+                throw new ArgumentNullException(nameof(jsRuntime),
                     "Browser TTS Service benötigt einen gültigen IJSRuntime Parameter.");
             }
-            
+
             var isWebViewContext = CheckWebViewContext(jsRuntime);
-            
+
             if (!isWebViewContext || !_initialized)
             {
                 return;
@@ -268,7 +281,8 @@ namespace LocalAiDemo.Shared.Services.Tts
                 Logger.LogInformation("Stoppe Browser TTS");
                 await jsRuntime.InvokeVoidAsync("stopSpeaking");
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") || ex.Message.Contains("JavaScript"))
+            catch (InvalidOperationException ex) when (ex.Message.Contains("WebView context") ||
+                                                       ex.Message.Contains("JavaScript"))
             {
                 Logger.LogWarning("JavaScript-Kontext nicht verfügbar für TTS-Stop: {Message}", ex.Message);
             }
@@ -280,18 +294,22 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogError(ex, "Fehler beim Stoppen von Browser TTS");
             }
-        }        public override bool IsAvailable()
+        }
+
+        public override bool IsAvailable()
         {
-            // Da wir das IJSRuntime nicht haben, geben wir true zurück
-            // Die tatsächliche Verfügbarkeit wird zur Laufzeit geprüft
+            // Da wir das IJSRuntime nicht haben, geben wir true zurück Die tatsächliche
+            // Verfügbarkeit wird zur Laufzeit geprüft
             return true;
-        }        public override Task<bool> IsAvailableAsync(IJSRuntime? jsRuntime)
+        }
+
+        public override Task<bool> IsAvailableAsync(IJSRuntime? jsRuntime)
         {
             if (jsRuntime == null)
             {
                 return Task.FromResult(IsAvailable());
             }
-            
+
             // Nur verfügbar, wenn wir in einem gültigen WebView-Kontext sind
             return Task.FromResult(CheckWebViewContext(jsRuntime));
         }

@@ -46,11 +46,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<IChatVectorizationService, ChatVectorizationService>();
         builder.Services.AddSingleton<IAdvancedVectorService, AdvancedVectorService>();
         builder.Services.AddSingleton<IChatVectorService, ChatVectorService>();
-        builder.Services.AddSingleton<IChatSegmentService, ChatSegmentService>();        // Register platform-specific TTS services
+        builder.Services
+            .AddSingleton<IChatSegmentService, ChatSegmentService>(); // Register platform-specific TTS services
         RegisterTtsServices(builder);
-          // Register browser-based Speech-to-Text service
-        builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
-        builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService, LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+
+        // Register Speech-to-Text services
+        RegisterSstServices(builder);
 
         // Configure logging
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
@@ -96,10 +97,10 @@ public static class MauiProgram
             builder.Services.AddSingleton<IContactService, ContactService>();
             builder.Services.AddSingleton<LocalAiDemo.Shared.Services.FunctionCalling.IMessageCreator,
                 LocalAiDemo.Shared.Services.FunctionCalling.MessageCreator>();
-            
+
             // Message Injection Service registrieren
             builder.Services.AddSingleton<IMessageInjectionService, MessageInjectionService>();
-            
+
             logger.LogInformation("Function Calling Services registriert");
 
             // Prüfen der Konfiguration für Text Generation
@@ -162,7 +163,7 @@ public static class MauiProgram
             // Default fallback implementation
             builder.Services.AddSingleton<IPlatformTts, Platforms.Default.PlatformTtsService>();
             logger.LogInformation("Registered Default Platform TTS provider");
-#endif            // Register the correct TTS service based on configuration
+#endif // Register the correct TTS service based on configuration
             if (preferredProvider == "System")
             {
                 // Register system TTS service as the primary service
@@ -175,7 +176,7 @@ public static class MauiProgram
                 builder.Services.AddSingleton<ITtsService, BrowserTtsService>();
                 logger.LogInformation("Using Browser TTS provider as configured in appsettings.json");
             }
-            
+
             // Always register BrowserTtsService as a separate service for direct injection
             builder.Services.AddSingleton<BrowserTtsService>();
 
@@ -185,6 +186,58 @@ public static class MauiProgram
         {
             var logger = new LoggerFactory().CreateLogger("TtsConfig");
             logger.LogError(ex, "Error registering TTS services: {Message}", ex.Message);
+        }
+    }
+
+    private static void RegisterSstServices(MauiAppBuilder builder)
+    {
+        try
+        {
+            var logger = new LoggerFactory().CreateLogger("SstConfig");
+
+            // Get preferred provider from configuration
+            var config = builder.Services.BuildServiceProvider().GetService<IOptions<AppConfiguration>>()?.Value;
+            var preferredProvider = config?.SttProvider ?? "Browser";
+            logger.LogInformation("Using SST provider from configuration: {Provider}", preferredProvider);
+
+            // Always register WhisperService as it's needed by WhisperSstService
+            builder.Services.AddSingleton<WhisperService>();
+
+            // Register the correct SST service based on configuration
+            if (preferredProvider == "Whisper")
+            {
+                // Register Whisper SST service as the primary service
+                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.WhisperSstService>();
+                builder.Services
+                    .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
+                        LocalAiDemo.Shared.Services.Sst.WhisperSstService>();
+                logger.LogInformation("Using Whisper SST provider as configured in appsettings.json");
+            }
+            else
+            {
+                // Register browser SST service as the primary service (default)
+                builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+                builder.Services
+                    .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
+                        LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+                logger.LogInformation("Using Browser SST provider as configured in appsettings.json");
+            }
+
+            // Always register BrowserSstService as a separate service for direct injection if needed
+            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+
+            logger.LogInformation("SST services registered successfully");
+        }
+        catch (Exception ex)
+        {
+            var logger = new LoggerFactory().CreateLogger("SstConfig");
+            logger.LogError(ex, "Error registering SST services: {Message}", ex.Message);
+
+            // Fallback to Browser SST service
+            builder.Services.AddSingleton<LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
+            builder.Services
+                .AddSingleton<LocalAiDemo.Shared.Services.Sst.ISstService,
+                    LocalAiDemo.Shared.Services.Sst.BrowserSstService>();
         }
     }
 }

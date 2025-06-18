@@ -22,26 +22,19 @@ namespace LocalAiDemo.Shared.Services.Sst
             {
                 Logger.LogInformation("Initializing speech recognition");
                 
-                // Lade das Speech Recognition Script
-                await jsRuntime.InvokeVoidAsync("eval", 
-                    "if (!document.getElementById('speech-recognition-js')) {" +
-                    "  var script = document.createElement('script');" +
-                    "  script.id = 'speech-recognition-js';" +
-                    "  script.src = '_content/LocalAiDemo.Shared/speech-recognition.js';" +
-                    "  script.async = true;" +
-                    "  script.onload = function() { console.log('Speech recognition script loaded successfully'); };" +
-                    "  script.onerror = function() { console.error('Failed to load speech recognition script'); };" +
-                    "  document.body.appendChild(script);" +
-                    "}");
+                // Initialisiere die Spracherkennung mit dem DotNetObjectReference (script is loaded statically)
+                var initialized = await jsRuntime.InvokeAsync<bool>("initSpeechRecognition", dotNetObjectReference);
                 
-                // Kurze Verzögerung um sicherzustellen, dass das Script geladen ist
-                await Task.Delay(1000);
-                
-                // Initialisiere die Spracherkennung mit dem DotNetObjectReference
-                await jsRuntime.InvokeVoidAsync("initSpeechRecognition", dotNetObjectReference);
-                Logger.LogInformation("Speech recognition initialized successfully");
-                
-                return true;
+                if (initialized)
+                {
+                    Logger.LogInformation("Speech recognition initialized successfully");
+                    return true;
+                }
+                else
+                {
+                    Logger.LogError("Failed to initialize speech recognition");
+                    return false;
+                }
             }
             catch (Exception ex)
             {
@@ -86,9 +79,7 @@ namespace LocalAiDemo.Shared.Services.Sst
                 Logger.LogError(ex, "Error stopping speech recognition: {ErrorMessage}", ex.Message);
                 throw;
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Prüft ob Spracherkennung im Browser verfügbar ist
         /// </summary>
         /// <param name="jsRuntime">Die IJSRuntime-Instanz</param>
@@ -97,10 +88,24 @@ namespace LocalAiDemo.Shared.Services.Sst
         {
             try
             {
-                var isAvailable = await jsRuntime.InvokeAsync<bool>("eval", 
-                    "'webkitSpeechRecognition' in window || 'SpeechRecognition' in window");
-                Logger.LogInformation("Speech recognition availability: {IsAvailable}", isAvailable);
-                return isAvailable;
+                // Add retry mechanism for script loading timing issues
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        var isAvailable = await jsRuntime.InvokeAsync<bool>("eval", 
+                            "'webkitSpeechRecognition' in window || 'SpeechRecognition' in window");
+                        Logger.LogInformation("Speech recognition availability: {IsAvailable}", isAvailable);
+                        return isAvailable;
+                    }
+                    catch (JSException) when (i < 2)
+                    {
+                        // Script not loaded yet, wait a bit and retry
+                        await Task.Delay(100);
+                        continue;
+                    }
+                }
+                return false;
             }
             catch (Exception ex)
             {

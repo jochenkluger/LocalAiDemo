@@ -191,17 +191,20 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogDebug("TTS-Initialisierung übersprungen - kein WebView-Kontext");
             }
-        }        public override async Task SpeakAsync(string text)
+        }        public override Task SpeakAsync(string text)
         {
-            // Diese Überladung für Rückwärtskompatibilität - sollte nicht verwendet werden
-            Logger.LogWarning("SpeakAsync ohne IJSRuntime aufgerufen - TTS übersprungen");
-            await Task.CompletedTask;
+            // Diese Überladung sollte für Browser TTS nicht verwendet werden
+            Logger.LogError("SpeakAsync ohne IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
+            throw new InvalidOperationException(
+                "Browser TTS Service benötigt einen IJSRuntime Parameter. " +
+                "Verwenden Sie SpeakAsync(string text, IJSRuntime jsRuntime) stattdessen.");
         }        public override async Task SpeakAsync(string text, IJSRuntime? jsRuntime)
         {
             if (jsRuntime == null)
             {
-                await SpeakAsync(text);
-                return;
+                Logger.LogError("SpeakAsync mit null IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
+                throw new ArgumentNullException(nameof(jsRuntime), 
+                    "Browser TTS Service benötigt einen gültigen IJSRuntime Parameter.");
             }
             
             var isWebViewContext = CheckWebViewContext(jsRuntime);
@@ -237,17 +240,20 @@ namespace LocalAiDemo.Shared.Services.Tts
             {
                 Logger.LogError(ex, "Fehler beim Sprechen mit Browser TTS: {Text}", text);
             }
-        }public override async Task StopSpeakingAsync()
+        }        public override Task StopSpeakingAsync()
         {
-            // Diese Überladung für Rückwärtskompatibilität - sollte nicht verwendet werden
-            Logger.LogWarning("StopSpeakingAsync ohne IJSRuntime aufgerufen - TTS-Stopp übersprungen");
-            await Task.CompletedTask;
+            // Diese Überladung sollte für Browser TTS nicht verwendet werden
+            Logger.LogError("StopSpeakingAsync ohne IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
+            throw new InvalidOperationException(
+                "Browser TTS Service benötigt einen IJSRuntime Parameter. " +
+                "Verwenden Sie StopSpeakingAsync(IJSRuntime jsRuntime) stattdessen.");
         }        public override async Task StopSpeakingAsync(IJSRuntime? jsRuntime)
         {
             if (jsRuntime == null)
             {
-                await StopSpeakingAsync();
-                return;
+                Logger.LogError("StopSpeakingAsync mit null IJSRuntime aufgerufen - Browser TTS benötigt JavaScript-Kontext");
+                throw new ArgumentNullException(nameof(jsRuntime), 
+                    "Browser TTS Service benötigt einen gültigen IJSRuntime Parameter.");
             }
             
             var isWebViewContext = CheckWebViewContext(jsRuntime);

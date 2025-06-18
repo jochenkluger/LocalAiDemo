@@ -3,9 +3,9 @@ let recognition;
 let dotNetReference;
 
 window.initSpeechRecognition = (dotNetObj) => {
-    dotNetReference = dotNetObj;
-    
     try {
+        dotNetReference = dotNetObj;
+        
         // Check if browser supports speech recognition
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
             console.error('Speech recognition not supported in this browser');

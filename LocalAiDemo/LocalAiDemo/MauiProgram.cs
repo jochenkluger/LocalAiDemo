@@ -163,12 +163,46 @@ public static class MauiProgram
             // Default fallback implementation
             builder.Services.AddSingleton<IPlatformTts, Platforms.Default.PlatformTtsService>();
             logger.LogInformation("Registered Default Platform TTS provider");
-#endif // Register the correct TTS service based on configuration
+#endif            // Register local TTS services
+            builder.Services.AddSingleton<ESpeakTtsService>();
+            builder.Services.AddSingleton<PiperTtsService>();
+            builder.Services.AddSingleton<OnnxTtsService>();
+            builder.Services.AddSingleton<ThorstenOnnxTtsService>();
+            logger.LogInformation("Registered local TTS services: eSpeak, Piper, ONNX, Thorsten-ONNX");
+
+            // Register the correct TTS service based on configuration
             if (preferredProvider == "System")
             {
                 // Register system TTS service as the primary service
                 builder.Services.AddSingleton<ITtsService, SystemTtsService>();
                 logger.LogInformation("Using System TTS provider as configured in appsettings.json");
+            }
+            else if (preferredProvider == "eSpeak")
+            {
+                // Register eSpeak TTS service as the primary service
+                builder.Services.AddSingleton<ITtsService>(provider => 
+                    provider.GetRequiredService<ESpeakTtsService>());
+                logger.LogInformation("Using eSpeak TTS provider as configured in appsettings.json");
+            }
+            else if (preferredProvider == "Piper")
+            {
+                // Register Piper TTS service as the primary service
+                builder.Services.AddSingleton<ITtsService>(provider => 
+                    provider.GetRequiredService<PiperTtsService>());
+                logger.LogInformation("Using Piper TTS provider as configured in appsettings.json");
+            }            else if (preferredProvider == "ONNX")
+            {
+                // Register ONNX TTS service as the primary service
+                builder.Services.AddSingleton<ITtsService>(provider => 
+                    provider.GetRequiredService<OnnxTtsService>());
+                logger.LogInformation("Using ONNX TTS provider as configured in appsettings.json");
+            }
+            else if (preferredProvider == "ThorstenOnnx")
+            {
+                // Register Thorsten ONNX TTS service as the primary service
+                builder.Services.AddSingleton<ITtsService>(provider => 
+                    provider.GetRequiredService<ThorstenOnnxTtsService>());
+                logger.LogInformation("Using Thorsten ONNX TTS provider as configured in appsettings.json");
             }
             else
             {

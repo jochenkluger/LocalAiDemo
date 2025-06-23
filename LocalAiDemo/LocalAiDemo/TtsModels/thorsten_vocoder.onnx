@@ -1,0 +1,3 @@
+# This is a placeholder vocoder model file for testing
+# In a real setup, this would be an actual ONNX vocoder model binary file  
+# The vocoder converts mel-spectrograms to raw audio waveforms

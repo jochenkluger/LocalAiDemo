@@ -1,0 +1,4 @@
+# This is a placeholder ONNX model file for testing
+# In a real setup, this would be an actual ONNX model binary file
+# Download real Thorsten models from: https://github.com/thorstenMueller/thorsten-voice
+# Model format: .onnx files for the TTS model and vocoder

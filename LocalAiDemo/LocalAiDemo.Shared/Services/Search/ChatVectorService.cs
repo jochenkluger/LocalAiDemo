@@ -3,52 +3,24 @@ using Microsoft.Extensions.Logging;
 
 namespace LocalAiDemo.Shared.Services.Search
 {
-    /// <summary>
-    /// Main facade service for all chat vectorization operations
-    /// Combines ChatVectorizationService and AdvancedVectorService for easy access
-    /// </summary>
-    public interface IChatVectorService
-    {
-        // Basic vectorization operations
-        Task<VectorizationResult> VectorizeAllUnprocessedAsync();
-        Task<VectorizationResult> ReVectorizeAllAsync();
-        Task<VectorizationStats> GetStatsAsync();
-
-        // Search operations
-        Task<List<Chat>> FindSimilarChatsAsync(string query, int limit = 5);
-        Task<List<ChatMessage>> FindSimilarMessagesAsync(string query, int limit = 10);
-        Task<List<ChatSearchResult>> HybridSearchAsync(string query, int limit = 10);
-
-        // Maintenance operations
-        Task<int> CleanupAsync();
-        Task RebuildIndicesAsync();
-
-        // Analytics
-        Task<List<ChatCluster>> FindChatClustersAsync(int maxClusters = 5);
-        Task<ChatSimilarityStats> GetChatSimilarityStatsAsync(int chatId);
-        Task<VectorDatabaseStats> GetDatabaseStatsAsync();
-
-        // Individual updates
-        Task UpdateChatVectorAsync(int chatId);
-        Task UpdateMessageVectorAsync(int messageId);
-    }
-
     public class ChatVectorService : IChatVectorService
-    {
-        private readonly IChatVectorizationService _vectorizationService;
+    {        private readonly IChatVectorizationService _vectorizationService;
         private readonly IAdvancedVectorService _advancedVectorService;
         private readonly IChatDatabaseService _chatDatabase;
+        private readonly IEmbeddingService _embeddingService;
         private readonly ILogger<ChatVectorService> _logger;
 
         public ChatVectorService(
             IChatVectorizationService vectorizationService,
             IAdvancedVectorService advancedVectorService,
             IChatDatabaseService chatDatabase,
+            IEmbeddingService embeddingService,
             ILogger<ChatVectorService> logger)
         {
             _vectorizationService = vectorizationService;
             _advancedVectorService = advancedVectorService;
             _chatDatabase = chatDatabase;
+            _embeddingService = embeddingService;
             _logger = logger;
         }
 
@@ -162,13 +134,10 @@ namespace LocalAiDemo.Shared.Services.Search
 
         public async Task<List<Chat>> FindSimilarChatsAsync(string query, int limit = 5)
         {
-            _logger.LogDebug("Finding similar chats for query: '{Query}'", query);
-
-            try
+            _logger.LogDebug("Finding similar chats for query: '{Query}'", query);            try
             {
-                // Use the existing chat database service method
-                var embeddingService = new EmbeddingService(); // TODO: Inject this properly
-                var queryEmbedding = embeddingService.GenerateEmbedding(query);
+                // Use the injected embedding service
+                var queryEmbedding = _embeddingService.GenerateEmbedding(query);
                 return await _chatDatabase.FindSimilarChatsAsync(queryEmbedding, limit);
             }
             catch (Exception ex)
@@ -238,32 +207,6 @@ namespace LocalAiDemo.Shared.Services.Search
         public async Task UpdateMessageVectorAsync(int messageId)
         {
             await _vectorizationService.UpdateMessageVectorAsync(messageId);
-        }
-    }
-
-    /// <summary>
-    /// Result of a vectorization operation
-    /// </summary>
-    public class VectorizationResult
-    {
-        public bool Success { get; set; }
-        public int ChatsProcessed { get; set; }
-        public int MessagesProcessed { get; set; }
-        public VectorizationStats? InitialStats { get; set; }
-        public VectorizationStats? FinalStats { get; set; }
-        public TimeSpan Duration { get; set; }
-        public string? ErrorMessage { get; set; }
-
-        public int TotalItemsProcessed => ChatsProcessed + MessagesProcessed;
-
-        public string GetSummary()
-        {
-            if (!Success)
-            {
-                return $"Vectorization failed: {ErrorMessage}";
-            }
-
-            return $"Successfully processed {ChatsProcessed} chats and {MessagesProcessed} messages in {Duration:mm\\:ss}";
         }
     }
 }

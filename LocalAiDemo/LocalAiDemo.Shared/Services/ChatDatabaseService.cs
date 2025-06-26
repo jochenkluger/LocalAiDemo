@@ -7,42 +7,6 @@ using System.Reflection;
 
 namespace LocalAiDemo.Shared.Services
 {
-    public interface IChatDatabaseService
-    {
-        Task InitializeDatabaseAsync();
-
-        Task<List<Chat>> GetAllChatsAsync();
-
-        Task<Chat?> GetChatAsync(int chatId);
-
-        Task<List<Chat>> GetChatsByContactAsync(int contactId);
-
-        Task<int> SaveChatAsync(Chat chat);
-
-        Task<List<Contact>> GetAllContactsAsync();
-
-        Task<Contact?> GetContactAsync(int contactId);
-
-        Task<int> SaveContactAsync(Contact contact);
-
-        Task<Chat?> GetOrCreateChatForContactAsync(int contactId);
-
-        Task<List<Chat>> FindSimilarChatsAsync(float[] embedding, int limit = 5);
-
-        // New: Chat segment methods
-        Task<int> SaveChatSegmentAsync(ChatSegment segment);
-
-        Task<List<ChatSegment>> GetSegmentsForChatAsync(int chatId);
-
-        Task<ChatSegment?> GetChatSegmentAsync(int segmentId);
-
-        Task DeleteChatSegmentAsync(int segmentId);
-
-        Task<List<ChatSegment>> GetAllChatSegmentsAsync();
-
-        Task UpdateChatSegmentAsync(ChatSegment segment);
-    }
-
     public class ChatDatabaseService : IChatDatabaseService
     {
         private readonly SqliteConnection _databaseConnection;
@@ -64,10 +28,10 @@ namespace LocalAiDemo.Shared.Services
             // For MAUI apps, use the app's data directory
 #if WINDOWS
             var databasePath =
- Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), dbName);
+ Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Constants.AppFolder, dbName);
 #else
             var databasePath =
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), dbName);
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Constants.AppFolder, dbName);
 #endif
 
             _logger.LogInformation("Database path: {DbPath}", databasePath);
@@ -177,23 +141,33 @@ namespace LocalAiDemo.Shared.Services
                         )";
                     await Task.Run(() => command.ExecuteNonQuery());
                     _logger.LogDebug("ChatSegment table created");
-                }
-
-                // Create virtual table for vector search if SQLite supports it
+                }                // Create virtual table for vector search if SQLite supports it
                 try
                 {
-                    // Try to create the vector index table - if this fails, vector search is not available
+                    // Try to create the vector index table for chats - if this fails, vector search is not available
                     using (var command = _databaseConnection.CreateCommand())
                     {
                         command.CommandText = @"
                             CREATE VIRTUAL TABLE IF NOT EXISTS chat_vectors USING vec0(
-                                embedding_vector FLOAT[128],
+                                embedding_vector FLOAT[384],
                                 chat_id INTEGER UNINDEXED
                             )";
                         await Task.Run(() => command.ExecuteNonQuery());
-                        _logger.LogDebug("Vector search table created successfully - vector search is available");
-                        _vectorSearchAvailable = true; // Vector search is available
+                        _logger.LogDebug("Chat vector search table created successfully");
                     }
+
+                    // Create vector index table for chat segments
+                    using (var command = _databaseConnection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            CREATE VIRTUAL TABLE IF NOT EXISTS chat_segment_vectors USING vec0(
+                                embedding_vector FLOAT[384],
+                                segment_id INTEGER UNINDEXED
+                            )";
+                        await Task.Run(() => command.ExecuteNonQuery());
+                        _logger.LogDebug("Chat segment vector search table created successfully");
+                    }                    _logger.LogDebug("Vector search tables created successfully - vector search is available");
+                    _vectorSearchAvailable = true; // Vector search is available
                 }
                 catch (SqliteException ex)
                 {
@@ -1469,9 +1443,7 @@ namespace LocalAiDemo.Shared.Services
                     .OrderByDescending(r => r.Similarity)
                     .Take(limit)
                     .Select(r => r.Chat)
-                    .ToList();
-
-                _logger.LogDebug("Manual search found {ResultCount} similar chats", results.Count);
+                    .ToList();                _logger.LogDebug("Manual search found {ResultCount} similar chats", results.Count);
                 return results;
             }
             catch (Exception ex)
@@ -1479,6 +1451,136 @@ namespace LocalAiDemo.Shared.Services
                 _logger.LogError(ex, "Error in FindSimilarChatsAsync: {ErrorMessage}", ex.Message);
                 return new List<Chat>();
             }
+        }
+
+        public async Task<List<ChatSegment>> FindSimilarSegmentsAsync(float[] embedding, int limit = 10)
+        {
+            List<ChatSegment> results;
+
+            try
+            {
+                _logger.LogDebug("FindSimilarSegmentsAsync: Looking for {Limit} similar segments", limit);
+
+                // Check if vector search is available
+                bool useVectorSearch = _vectorSearchAvailable;
+
+                // Only try to use vector search if we know it's available
+                if (useVectorSearch)
+                {
+                    try
+                    {
+                        var segmentIds = new List<int>();
+                        using (var command = _databaseConnection.CreateCommand())
+                        {
+                            command.CommandText =
+                                "SELECT segment_id, distance FROM chat_segment_vectors WHERE vec0_search(embedding_vector, @embedding) LIMIT @limit";
+
+                            // Convert embedding to blob parameter
+                            var embeddingBytes = SerializeVector(embedding);
+                            command.Parameters.AddWithValue("@embedding", embeddingBytes);
+                            command.Parameters.AddWithValue("@limit", limit);
+
+                            using (var reader = await Task.Run(() => command.ExecuteReader()))
+                            {
+                                while (await Task.Run(() => reader.Read()))
+                                {
+                                    segmentIds.Add(reader.GetInt32(0));
+                                }
+                            }
+                        }
+
+                        if (segmentIds.Count > 0)
+                        {
+                            _logger.LogDebug("Vector search found {ResultCount} segments", segmentIds.Count);
+
+                            results = new List<ChatSegment>();
+
+                            foreach (var id in segmentIds)
+                            {
+                                var segment = await GetChatSegmentAsync(id);
+                                if (segment != null)
+                                {
+                                    results.Add(segment);
+                                }
+                            }
+
+                            return results;
+                        }
+                    }
+                    catch (Microsoft.Data.Sqlite.SqliteException ex)
+                    {
+                        _logger.LogWarning(
+                            "Vector search failed even though it was marked as available: {ErrorMessage}", ex.Message);
+                        _vectorSearchAvailable = false; // Update flag since vector search isn't working
+
+                        // Try to re-enable vector search
+                        await _sqliteVectorSearchService.EnableVectorSearchAsync(_databaseConnection);
+
+                        // Fall through to manual search
+                    }
+                }
+
+                // Fallback: manually compute similarities
+                _logger.LogDebug("Using manual similarity calculation for segments");
+
+                // Get all segments with their embeddings
+                var allSegments = await GetAllChatSegmentsAsync();
+                var segmentsWithEmbeddings = allSegments.Where(s => s.EmbeddingVector != null).ToList();
+
+                if (segmentsWithEmbeddings.Count == 0)
+                {
+                    _logger.LogDebug("No segments with embeddings found");
+                    return new List<ChatSegment>();
+                }
+
+                // Calculate similarities
+                var similarities = new List<(ChatSegment segment, float similarity)>();
+                foreach (var segment in segmentsWithEmbeddings)
+                {
+                    float similarity = CalculateCosineSimilarity(embedding, segment.EmbeddingVector!);
+                    similarities.Add((segment, similarity));
+                }
+
+                // Sort by similarity and take top results
+                results = similarities
+                    .OrderByDescending(s => s.similarity)
+                    .Take(limit)
+                    .Select(s => s.segment)
+                    .ToList();
+
+                _logger.LogDebug("Manual search found {ResultCount} similar segments", results.Count);
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in FindSimilarSegmentsAsync: {ErrorMessage}", ex.Message);
+                return new List<ChatSegment>();
+            }
+        }
+
+        private float CalculateCosineSimilarity(float[] vector1, float[] vector2)
+        {
+            if (vector1.Length != vector2.Length)
+                return 0;
+
+            float dotProduct = 0;
+            float magnitude1 = 0;
+            float magnitude2 = 0;
+
+            for (int i = 0; i < vector1.Length; i++)
+            {
+                dotProduct += vector1[i] * vector2[i];
+                magnitude1 += vector1[i] * vector1[i];
+                magnitude2 += vector2[i] * vector2[i];
+            }
+
+            magnitude1 = (float)Math.Sqrt(magnitude1);
+            magnitude2 = (float)Math.Sqrt(magnitude2);
+
+            if (magnitude1 == 0 || magnitude2 == 0)
+                return 0;
+
+            return dotProduct / (magnitude1 * magnitude2);
         }
 
         // Helper methods for serializing/deserializing vector data
@@ -1580,10 +1682,45 @@ namespace LocalAiDemo.Shared.Services
                     command.Parameters.AddWithValue("@startTime", segment.StartTime.ToString("yyyy-MM-dd HH:mm:ss"));
                     command.Parameters.AddWithValue("@endTime", segment.EndTime.ToString("yyyy-MM-dd HH:mm:ss"));
                     command.Parameters.AddWithValue("@createdAt", segment.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
-                    command.Parameters.AddWithValue("@keywords", segment.Keywords ?? string.Empty);
-
-                    var segmentId = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
+                    command.Parameters.AddWithValue("@keywords", segment.Keywords ?? string.Empty);                    var segmentId = Convert.ToInt32(await Task.Run(() => command.ExecuteScalar()));
                     segment.Id = segmentId;
+
+                    // Also add to vector search table if available and segment has embedding
+                    if (_vectorSearchAvailable && segment.EmbeddingVector != null)
+                    {
+                        try
+                        {
+                            using (var vectorCommand = _databaseConnection.CreateCommand())
+                            {
+                                if (segment.Id == segmentId) // This was an insert
+                                {
+                                    vectorCommand.CommandText =
+                                        "INSERT INTO chat_segment_vectors(embedding_vector, segment_id) VALUES (@embeddingVector, @segmentId)";
+                                }
+                                else // This was an update - first delete old entry, then insert new one
+                                {
+                                    vectorCommand.CommandText = "DELETE FROM chat_segment_vectors WHERE segment_id = @segmentId";
+                                    vectorCommand.Parameters.AddWithValue("@segmentId", segment.Id);
+                                    await Task.Run(() => vectorCommand.ExecuteNonQuery());
+
+                                    vectorCommand.CommandText =
+                                        "INSERT INTO chat_segment_vectors(embedding_vector, segment_id) VALUES (@embeddingVector, @segmentId)";
+                                }
+
+                                var embeddingBytes = SerializeVector(segment.EmbeddingVector);
+                                vectorCommand.Parameters.AddWithValue("@embeddingVector", embeddingBytes);
+                                vectorCommand.Parameters.AddWithValue("@segmentId", segment.Id);
+
+                                await Task.Run(() => vectorCommand.ExecuteNonQuery());
+                                _logger.LogDebug("Added segment {SegmentId} to vector search index", segment.Id);
+                            }
+                        }
+                        catch (Microsoft.Data.Sqlite.SqliteException ex)
+                        {
+                            _logger.LogDebug("Error adding segment to vector search table: {ErrorMessage}", ex.Message);
+                            // Don't fail the whole operation if vector indexing fails
+                        }
+                    }
 
                     _logger.LogDebug("Chat segment saved with ID {SegmentId}", segmentId);
                     return segmentId;
@@ -1693,12 +1830,30 @@ namespace LocalAiDemo.Shared.Services
                     ex.Message);
                 return null;
             }
-        }
-
-        public async Task DeleteChatSegmentAsync(int segmentId)
+        }        public async Task DeleteChatSegmentAsync(int segmentId)
         {
             try
             {
+                // First delete from vector table if available
+                if (_vectorSearchAvailable)
+                {
+                    try
+                    {
+                        using (var vectorCommand = _databaseConnection.CreateCommand())
+                        {
+                            vectorCommand.CommandText = "DELETE FROM chat_segment_vectors WHERE segment_id = @segmentId";
+                            vectorCommand.Parameters.AddWithValue("@segmentId", segmentId);
+                            await Task.Run(() => vectorCommand.ExecuteNonQuery());
+                        }
+                    }
+                    catch (Microsoft.Data.Sqlite.SqliteException ex)
+                    {
+                        _logger.LogDebug("Error deleting segment from vector table: {ErrorMessage}", ex.Message);
+                        // Don't fail the whole operation if vector cleanup fails
+                    }
+                }
+
+                // Then delete from main table
                 using (var command = _databaseConnection.CreateCommand())
                 {
                     command.CommandText = "DELETE FROM ChatSegment WHERE Id = @id";

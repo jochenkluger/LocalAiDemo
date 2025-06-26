@@ -44,40 +44,42 @@ namespace LocalAiDemo.Shared.Models
                 "Phi-4 (Q4_K)",
                 "phi-4-Q4_K.gguf",
                 "https://huggingface.co/microsoft/phi-4-gguf/resolve/main/phi-4-Q4_K.gguf?download=true",
-                ExecutionMode.Local,
-                true // Default selected Logic model
+                ExecutionMode.Local
             ),
 
             new AiModel(
                 "Phi-4-mini-reasoning (Q4_K_XL)",
                 "Phi-4-mini-reasoning-UD-Q4_K_XL.gguf",
                 "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-Q4_K_XL.gguf?download=true",
-                ExecutionMode.Local,
-                true // Default selected Logic model
+                ExecutionMode.Local
             ),
 
             new AiModel(
                 "Llama 3.2 3B (Q4_K) Pilemouse",
                 "llama-3.2-3b-q4_k_m.gguf",
                 "https://huggingface.co/pilemouse/Llama-3.2-3B-Q4_K_M-GGUF/blob/main/llama-3.2-3b-q4_k_m.gguf?download=true",
-                ExecutionMode.Local,
-                true // Default selected Logic model
+                ExecutionMode.Local
             ),
 
             new AiModel(
                 "Llama 3.2 3B instruct (Q4_1) Mungert",
                 "Llama-3.2-3B-Instruct-q4_1.gguf",
                 "https://huggingface.co/Mungert/Llama-3.2-3B-Instruct-GGUF/blob/main/Llama-3.2-3B-Instruct-q4_1.gguf?download=true",
-                ExecutionMode.Local,
-                true // Default selected Logic model
+                ExecutionMode.Local
+            ),
+
+            new AiModel(
+                "Llama-3.2-3B-Instruct-GGUF (Q5_K_M) Bartowski",
+                "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+                "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q5_K_M.gguf?download=true",
+                ExecutionMode.Local
             ),
 
             new AiModel(
                 "Tinyllama german (Q6_K)",
                 "tinyllama-german.Q6_K.gguf",
                 "https://huggingface.co/mradermacher/tinyllama-german-GGUF/resolve/main/tinyllama-german.Q6_K.gguf?download=true",
-                ExecutionMode.Local,
-                true // Default selected Logic model
+                ExecutionMode.Local
             ),
 
             new AiModel(

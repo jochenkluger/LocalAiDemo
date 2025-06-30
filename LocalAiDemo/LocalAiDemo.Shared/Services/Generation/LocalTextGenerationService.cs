@@ -75,9 +75,9 @@ namespace LocalAiDemo.Shared.Services.Generation
             var parameters = new ModelParams(_modelFilePath)
             {
                 ContextSize = 4096,
-                GpuLayerCount = -1, // -1 = alle verfügbaren Layer auf GPU offloaden
+                GpuLayerCount = -1, 
                 Threads = Environment.ProcessorCount, // Alle CPU-Cores nutzen
-                BatchSize = 512, // Größere Batch-Size für bessere GPU-Auslastung
+                BatchSize = 512, // Größere Batch-Size für bessere Auslastung
             };
             var progress = new Progress<float>(p => onProgress?.Invoke(p * 100));
             _model = await LLamaWeights.LoadFromFileAsync(parameters, CancellationToken.None, progress);

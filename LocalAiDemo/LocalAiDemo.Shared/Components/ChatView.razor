@@ -1,0 +1,275 @@
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Services.Chat
+@using LocalAiDemo.Shared.Services.Generation
+@using LocalAiDemo.Shared.Services.Search
+@using Microsoft.Extensions.Logging
+@implements IDisposable
+@inject IAiAssistantService AiAssistant
+@inject IChatDatabaseService ChatDatabase
+@inject IChatService ChatService
+@inject IEmbeddingService EmbeddingService
+@inject IMessageInjectionService MessageInjection
+@inject IPerformanceService PerformanceService
+@inject ILogger<ChatView> Logger
+
+<div class="chat-container-view">
+    @if (CurrentChat != null)
+    {        <div class="chat-header">
+            @if (CurrentChat.Contact != null)
+            {
+                <div class="chat-person-info">
+                    <div class="person-avatar">
+                        @if (!string.IsNullOrEmpty(CurrentChat.Contact.AvatarUrl))
+                        {
+                            <img src="@CurrentChat.Contact.AvatarUrl" alt="@CurrentChat.Contact.Name" />
+                        }
+                        else
+                        {
+                            <div class="avatar-placeholder">
+                                @CurrentChat.Contact.Name[0]
+                            </div>
+                        }
+                        <span class="status-indicator @CurrentChat.Contact.Status.ToString().ToLower()"></span>
+                    </div>
+                    <div>
+                        <h2>@CurrentChat.Contact.Name</h2>
+                        <div class="person-department">@CurrentChat.Contact.Department</div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <h2>@CurrentChat.Title</h2>
+            }        </div>
+
+        <div class="chat-messages" id="chat-messages-container">
+            @foreach (var message in CurrentChat.Messages)
+            {
+                <div class="message @(message.IsUser ? "user-message" : "ai-message")">
+                    <div class="message-content">@message.Content</div>
+                    <div class="message-time">@FormatTime(message.Timestamp)</div>
+                </div>
+            }
+        </div>        <div class="chat-input">
+            @if (!string.IsNullOrEmpty(injectedMessageInfo))
+            {
+                <div class="injected-message-info">
+                    <span>💬 @injectedMessageInfo</span>
+                    <button type="button" @onclick="ClearInjectedMessage" class="clear-injection-btn">✕</button>
+                </div>
+            }
+            <textarea placeholder="Nachricht eingeben..." 
+                      @bind="newMessage" 
+                      @onkeydown="HandleKeyPress"></textarea>
+            <button @onclick="SendMessage" disabled="@isProcessing">
+                @(isProcessing ? "Sendet..." : "Senden")
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="no-chat-selected">
+            <p>Bitte wählen Sie einen Chat aus oder erstellen Sie einen neuen Chat.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Chat? CurrentChat { get; set; }
+
+    [Parameter]
+    public EventCallback<Chat> OnChatUpdated { get; set; }
+
+    [Parameter]
+    public EventCallback<Chat> OnNavigateToChat { get; set; }    private string newMessage = "";
+    private bool isProcessing = false;
+    private string injectedMessageInfo = "";
+
+    protected override void OnInitialized()
+    {
+        // Event-Handler für Message Injection registrieren
+        MessageInjection.MessageInjectionRequested += OnMessageInjectionRequested;
+    }
+
+    protected override void OnParametersSet()
+    {
+        Logger.LogInformation("ChatView - OnParametersSet called with chat: {ChatId}", CurrentChat?.Id ?? 0);
+        base.OnParametersSet();
+
+        // Scroll to the bottom of the message list when a chat is loaded or messages change
+        ScrollToBottom();
+    }
+
+    public void Dispose()
+    {
+        // Event-Handler wieder abmelden
+        MessageInjection.MessageInjectionRequested -= OnMessageInjectionRequested;
+    }
+
+    private async void OnMessageInjectionRequested(object? sender, MessageInjectionEventArgs e)
+    {
+        try
+        {
+            Logger.LogInformation("Message injection requested for contact {ContactName} (ID: {ContactId}): {Message}", 
+                e.ContactName ?? "Unknown", e.ContactId, e.Message);
+
+            // Nachricht in die TextBox einfügen
+            newMessage = e.Message;
+            
+            // Info für den Benutzer anzeigen
+            injectedMessageInfo = $"Nachricht für {e.ContactName ?? "Kontakt"} eingefügt";
+            
+            // UI aktualisieren
+            await InvokeAsync(StateHasChanged);
+            
+            Logger.LogInformation("Message injected into chat textbox successfully");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during message injection: {ErrorMessage}", ex.Message);
+        }
+    }
+
+    private void ClearInjectedMessage()
+    {
+        newMessage = "";
+        injectedMessageInfo = "";
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending message in chat {ChatId}", CurrentChat.Id);
+        isProcessing = true;        try
+        {
+            var userMessageContent = newMessage;
+            newMessage = ""; // Clear input field immediately
+            injectedMessageInfo = ""; // Clear injection info
+            StateHasChanged(); // Update UI immediately
+
+            // Use ChatService to add user message with automatic segment handling
+            var updatedChat = await ChatService.AddMessageToChatAsync(CurrentChat.Id, userMessageContent, true);
+            
+            // Update the current chat with the new message
+            CurrentChat.Messages = updatedChat.Messages;
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();            // Get AI response
+            Logger.LogInformation("Getting AI response");
+            string? response;
+            using (var llmMeasurement = PerformanceService.StartLlmMeasurement())
+            {
+                response = await AiAssistant.GetResponseAsync(userMessageContent);
+            }
+            Logger.LogInformation("Received AI response: {Length} characters", response?.Length ?? 0);// Add AI response using ChatService
+            updatedChat = await ChatService.AddMessageToChatAsync(CurrentChat.Id, response ?? "No response received", false);
+            
+            // Update the current chat with the AI response
+            CurrentChat.Messages = updatedChat.Messages;
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();
+
+            // Notify parent component that chat was updated
+            await OnChatUpdated.InvokeAsync(CurrentChat);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in SendMessage: {ErrorMessage}", ex.Message);
+        }
+        finally
+        {
+            isProcessing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string FormatTime(DateTime time)
+    {
+        if (time.Date == DateTime.Now.Date)
+        {
+            return time.ToString("HH:mm");
+        }
+        else if (time.Date == DateTime.Now.Date.AddDays(-1))
+        {
+            return "Gestern";
+        }
+        else
+        {
+            return time.ToString("dd.MM.yyyy");
+        }
+    }
+
+    private void ScrollToBottom()
+    {
+        // This will be implemented with JS interop if needed
+        // For now we'll use CSS to auto-scroll the chat container
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Public method to be called by parent component when chat is updated externally
+    public void ChatUpdated()
+    {
+        InvokeAsync(() => 
+        {
+            StateHasChanged();
+            ScrollToBottom();
+        });
+    }
+
+    // Method to send a message from an external source (like speech recognition)
+    public async Task SendMessageExternally(string messageContent)
+    {
+        if (string.IsNullOrWhiteSpace(messageContent) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending external message in chat {ChatId}: {Message}", CurrentChat.Id, messageContent);
+        
+        // Store the message temporarily
+        newMessage = messageContent;
+        
+        // Call the regular send method
+        await SendMessage();
+    }
+}
+
+<style>
+    .injected-message-info {
+        background-color: #e3f2fd;
+        border: 1px solid #2196f3;
+        border-radius: 4px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.9em;
+        color: #1976d2;
+    }
+
+    .clear-injection-btn {
+        background: none;
+        border: none;
+        color: #1976d2;
+        cursor: pointer;
+        font-size: 1.1em;
+        margin-left: 8px;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .clear-injection-btn:hover {
+        color: #0d47a1;
+    }
+</style>

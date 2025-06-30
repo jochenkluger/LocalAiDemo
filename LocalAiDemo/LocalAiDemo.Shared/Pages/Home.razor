@@ -1,191 +1,940 @@
-﻿@page "/"
-@using LocalAiDemo.Shared.Services
+@page "/"
+@using LocalAiDemo.Shared.Components
 @using LocalAiDemo.Shared.Models
-@inject IFormFactor FormFactor
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Services.Chat
+@using LocalAiDemo.Shared.Services.Generation
+@using LocalAiDemo.Shared.Services.Search
+@using LocalAiDemo.Shared.Services.Tts
+@using LocalAiDemo.Shared.Services.Stt
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+@inject IFormFactor FormFactor 
+@inject IAiAssistantService AiAssistant
+@inject IPerformanceService PerformanceService
+@inject IChatDatabaseService ChatDatabase
+@inject IChatService ChatService
+@inject IEmbeddingService EmbeddingService
+@inject IMessageInjectionService MessageInjection
+@inject ILogger<Home> Logger
+@inject ITextGenerationService TextGenerationService
+@inject ITtsService TtsService
+@inject ISttService SttService
+@implements IDisposable
 
 <PageTitle>Chat Demo</PageTitle>
 <link rel="stylesheet" href="_content/LocalAiDemo.Shared/chat.css" />
+<link rel="stylesheet" href="_content/LocalAiDemo.Shared/modal.css" />
 
-<div class="chat-container">
+<div class="chat-container @(isLogExpanded ? "log-expanded" : "")">
     <!-- Left Column - Chat List -->
     <div class="chat-list">
-        <h2>Chats</h2>
-        <div class="search-box">
-            <input type="text" placeholder="Suche..." />
-        </div>
-        <div class="chat-items">
-            @foreach (var chat in chats)
-            {
-                <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
-                    <div class="chat-title">@chat.Title</div>
-                    <div class="chat-preview">@GetChatPreview(chat)</div>
-                    <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
-                </div>
-            }
-        </div>
-        <div class="new-chat-button">
-            <button @onclick="CreateNewChat">Neuer Chat</button>
-        </div>
-    </div>
-
-    <!-- Middle Column - Current Chat -->
-    <div class="current-chat">
-        @if (selectedChat != null)
-        {
-            <div class="chat-header">
-                <h2>@selectedChat.Title</h2>
+        <h2>Chats</h2>        <div class="search-box">
+            <div class="search-input-group">
+                <input type="text" 
+                       placeholder="Intelligente Suche in allen Chats..." 
+                       @bind="searchQuery" 
+                       @onkeypress="HandleSearchKeyPress" />
+                <button class="btn btn-sm btn-primary" @onclick="PerformVectorSearch" disabled="@isSearching">
+                    @if (isSearching)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-search"></i>
+                    }
+                    Suchen
+                </button>
             </div>
-            <div class="chat-messages">
-                @foreach (var message in selectedChat.Messages)
+        </div>        <div class="chat-items">
+            @if (searchResults.Any())
+            {
+                <!-- Search Results -->
+                <div class="search-results-header">
+                    <span>@searchResults.Count Suchergebnisse</span>
+                    <button class="btn btn-sm btn-link" @onclick="ClearSearchResults">
+                        <i class="bi bi-x"></i> Zurück
+                    </button>
+                </div>
+                @foreach (var result in searchResults)
                 {
-                    <div class="message @(message.IsUser ? "user-message" : "ai-message")">
-                        <div class="message-content">@message.Content</div>
-                        <div class="message-time">@FormatTime(message.Timestamp)</div>
+                    <div class="search-result-item" @onclick="() => NavigateToSearchResult(result)">                        <div class="search-result-header">
+                            <div class="person-avatar small">
+                                @if (result.Chat?.Contact != null && !string.IsNullOrEmpty(result.Chat.Contact.AvatarUrl))
+                                {
+                                    <img src="@result.Chat.Contact.AvatarUrl" alt="@result.Chat.Contact.Name" />
+                                }
+                                else
+                                {
+                                    <div class="avatar-placeholder">
+                                        @(result.Chat?.Contact?.Name?.FirstOrDefault() ?? 'U')
+                                    </div>
+                                }
+                            </div>
+                            <div class="search-result-info">
+                                <div class="chat-title">@(result.Chat?.Contact?.Name ?? result.Chat?.Title ?? "Unbekannter Chat")</div>
+                                <div class="result-date">@result.Segment.SegmentDate.ToString("dd.MM.yyyy")</div>
+                                <div class="result-score">Relevanz: @(Math.Round(result.SimilarityScore * 100, 1))%</div>
+                            </div>
+                        </div>
+                        <div class="result-content">@result.HighlightedSnippet</div>
                     </div>
                 }
-            </div>
-            <div class="chat-input">
-                <textarea placeholder="Nachricht eingeben..." @bind="newMessage"></textarea>
-                <button @onclick="SendMessage">Senden</button>
-            </div>
-        }
-        else
-        {
-            <div class="no-chat-selected">
-                <p>Bitte wählen Sie einen Chat aus oder erstellen Sie einen neuen Chat.</p>
-            </div>
-        }
-    </div>
-
-    <!-- Right Column - Measurements -->
-    <div class="measurements">
-        <h2>Messwerte</h2>
-        <div class="measurement-items">
-            @foreach (var measurement in measurements)
+            }
+            else
             {
-                <div class="measurement-item">
-                    <div class="measurement-name">@measurement.Name</div>
-                    <div class="measurement-value">@measurement.Value @measurement.Unit</div>
-                    <div class="measurement-time">@FormatTime(measurement.Timestamp)</div>
+                <!-- Normal Chat List -->
+                @foreach (var chat in displayedChats)
+                {                    <div class="chat-item @(chat.Id == selectedChatId ? "active" : "")" @onclick="() => SelectChat(chat.Id)">
+                        <div class="person-avatar small">
+                            @if (chat.Contact != null && !string.IsNullOrEmpty(chat.Contact.AvatarUrl))
+                            {
+                                <img src="@chat.Contact.AvatarUrl" alt="@chat.Contact.Name" />
+                            }
+                            else
+                            {
+                                <div class="avatar-placeholder">
+                                    @(chat.Contact?.Name?.FirstOrDefault() ?? 'U')
+                                </div>
+                            }
+                            <span class="status-indicator @(chat.Contact?.Status.ToString().ToLower() ?? "offline")"></span>
+                        </div>
+                        <div class="chat-details">
+                            <div class="chat-title">@(chat.Contact?.Name ?? chat.Title)</div>
+                            <div class="chat-preview">@GetChatPreview(chat)</div>
+                            <div class="chat-time">@FormatTime(chat.CreatedAt)</div>
+                        </div>
+                    </div>
+                }
+
+                @if (!displayedChats.Any())
+                {
+                    <div class="empty-state">
+                        <p>Keine Chats gefunden.</p>
+                    </div>
+                }
+            }        </div>
+        <div class="new-chat-button">
+            <button @onclick="@(async () => await ShowContactSelectModal())">Neuer Chat</button>
+        </div>
+    </div>
+    
+    <!-- Middle Column - Current Chat -->
+    <div class="current-chat">
+        <ChatView 
+            @ref="chatViewComponent" 
+            CurrentChat="@selectedChat" 
+            OnChatUpdated="@HandleChatUpdated"
+            OnNavigateToChat="@HandleNavigateToChat" />
+    </div>
+    
+    <!-- Right Column - AI Assistant -->
+    <div class="ai-assistant">
+        <h2>KI-Assistent</h2>
+        <div class="assistant-content">
+            @if (isTextGenerationInitializing)
+            {
+                <div class="ai-initialization-progress">
+                    <div class="progress-header">
+                        <i class="bi bi-cpu"></i>
+                        <span>@textGenerationStatus</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-ai">
+                            <div class="progress-fill-ai" style="width: @textGenerationProgress%"></div>
+                        </div>
+                        <span class="progress-percentage">@Math.Round(textGenerationProgress, 1)%</span>
+                    </div>
                 </div>
             }
+            else if (!isTextGenerationInitialized)
+            {
+                <div class="ai-error-state">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span>KI-Modell konnte nicht initialisiert werden</span>
+                </div>
+            }
+            else
+            {
+                <div class="assistant-chat-history">
+                    <div class="assistant-messages">
+                        @foreach (var message in assistantChat.Messages)
+                        {
+                            <div class="message-preview @(message.IsUser ? "user" : "ai")">
+                                <div class="message-content">@message.Content</div>
+                                <div class="message-time">@FormatTime(message.Timestamp)</div>
+                            </div>
+                        }
+                    </div>
+                </div>            
+                <div class="assistant-actions">
+                    <button id="speechButton" class="action-button voice-record-button @(isRecording ? "recording" : "")" 
+                            @onmousedown="StartRecording" @onmouseup="StopRecording" @onmouseleave="StopRecording">
+                        <i class="bi bi-mic"></i> @(isRecording ? "Aufnahme läuft..." : "Sprechen (Halten)")
+                    </button>
+                </div>            }
         </div>
     </div>
 </div>
 
+<!-- Log Section -->
+<div class="log-section">
+    <div class="log-header" @onclick="ToggleLogExpansion">
+        <div class="log-title">
+            <i class="bi bi-terminal"></i>
+            Anwendungslog
+            <span class="log-update-info">(@logEntries.Count Einträge, zuletzt aktualisiert: @lastLogUpdate.ToString("HH:mm:ss"))</span>
+            <span class="log-toggle-icon @(isLogExpanded ? "expanded" : "")">▼</span>
+        </div>
+    </div>
+    <div class="log-content @(isLogExpanded ? "expanded" : "")">
+        @foreach (var logEntry in logEntries)
+        {
+            <div class="log-entry">@logEntry</div>
+        }
+    </div>
+</div>
+
+<!-- Performance Status Bar -->
+<div class="status-bar">
+    <div class="status-item">
+        <i class="bi bi-info-circle"></i>
+        LocalAI Demo
+    </div>
+    
+    <div class="performance-status">
+        @if (PerformanceService.LastSttDuration.HasValue)
+        {
+            <div class="performance-metric">
+                <i class="bi bi-mic"></i>
+                <span class="metric-label">STT:</span>
+                <span class="metric-duration">@PerformanceService.LastSttDuration.Value.ToString("F1")ms</span>
+            </div>
+        }
+        @if (PerformanceService.LastLlmDuration.HasValue)
+        {
+            <div class="performance-metric">
+                <i class="bi bi-cpu"></i>
+                <span class="metric-label">LLM:</span>
+                <span class="metric-duration">@PerformanceService.LastLlmDuration.Value.ToString("F1")ms</span>
+            </div>
+        }
+        @if (PerformanceService.LastTtsDuration.HasValue)
+        {
+            <div class="performance-metric">
+                <i class="bi bi-volume-up"></i>
+                <span class="metric-label">TTS:</span>
+                <span class="metric-duration">@PerformanceService.LastTtsDuration.Value.ToString("F1")ms</span>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Contact Select Modal -->
+<ContactSelectModal @ref="contactSelectModal"
+                   OnContactSelected="OnContactSelected" />
 
 @code {
     private string factor => FormFactor.GetFormFactor();
     private string platform => FormFactor.GetPlatform();
+    
+    private ContactSelectModal? contactSelectModal;
+    private ChatView? chatViewComponent;
+    private string searchQuery = "";
+    private bool isSearching = false;
+    private List<ChatSegmentSearchResult> searchResults = new List<ChatSegmentSearchResult>();
 
-    // Sample data for chats
-    private List<Chat> chats = new List<Chat>
-    {
-        new Chat
+    // Database-backed data
+    private List<Chat> chats = new List<Chat>();
+    private List<Chat> displayedChats = new List<Chat>();
+    private List<Contact> availableContacts = new List<Contact>();
+    
+    // Eigener Chat für den Assistenten
+    private Chat assistantChat = new Chat 
+    { 
+        Id = -1, 
+        Title = "KI-Assistent Chat",
+        CreatedAt = DateTime.Now,
+        IsActive = true,
+        Messages = new List<ChatMessage>()
+    };    // Log and Performance data
+    private bool isLogExpanded = false;
+    private List<string> logEntries = new List<string>();
+    private DateTime lastLogUpdate = DateTime.Now;
+    private int selectedChatId = 0;
+    private Chat? selectedChat => chats.FirstOrDefault(c => c.Id == selectedChatId);  // Keep as computed property for consistency
+    
+    // Timer für regelmäßige Log-Updates
+    private System.Threading.Timer? logUpdateTimer;
+    
+    // Text Generation Service Initialisierung
+    private bool isTextGenerationInitialized = false;
+    private bool isTextGenerationInitializing = false;
+    private double textGenerationProgress = 0;
+    private string textGenerationStatus = "";
+    
+    // Sprachaufnahme-Variablen
+    private bool isRecording = false;
+    private bool isSpeaking = false;    private string recordedText = "";
+    private IJSRuntime? jsRuntime;
+    private DotNetObjectReference<Home>? objRef;
+    private IDisposable? currentSttMeasurement;
+
+    // JavaScript-Injection für Sprachaufnahme
+    [Inject]
+    public IJSRuntime JSRuntime { 
+        get => jsRuntime ?? throw new InvalidOperationException("JSRuntime was not initialized");
+        set => jsRuntime = value;
+    }protected override async Task OnAfterRenderAsync(bool firstRender)
+    {        if (firstRender)
         {
-            Id = 1,
-            Title = "Chat mit KI-Assistent",
-            CreatedAt = DateTime.Now.AddDays(-2),
-            IsActive = true,
-            Messages = new List<ChatMessage>
+            try
             {
-                new ChatMessage { Id = 1, Content = "Hallo, wie kann ich dir helfen?", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(1), IsUser = false },
-                new ChatMessage { Id = 2, Content = "Ich möchte mehr über KI erfahren.", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(2), IsUser = true },
-                new ChatMessage { Id = 3, Content = "Künstliche Intelligenz (KI) ist ein Teilgebiet der Informatik, das sich mit der Automatisierung intelligenten Verhaltens befasst.", Timestamp = DateTime.Now.AddDays(-2).AddMinutes(3), IsUser = false },
+                // Create our object reference
+                objRef = DotNetObjectReference.Create(this);
+                
+                // Initialize speech recognition with our object reference
+                Logger.LogInformation("Initializing speech recognition");
+                var speechRecognitionAvailable = await SttService.IsAvailableAsync(JSRuntime);
+                if (speechRecognitionAvailable)
+                {
+                    await SttService.InitializeSpeechRecognitionAsync(JSRuntime, objRef);
+                    Logger.LogInformation("Speech recognition initialized");
+                }
+                else
+                {
+                    Logger.LogWarning("Speech recognition not available in this browser");
+                }
+                
+                // TTS service handles its own initialization
+                Logger.LogInformation("TTS service is available: {Available}", TtsService.IsAvailable());
             }
-        },
-        new Chat
-        {
-            Id = 2,
-            Title = "Technischer Support",
-            CreatedAt = DateTime.Now.AddDays(-1),
-            IsActive = false,
-            Messages = new List<ChatMessage>
+            catch (Exception ex)
             {
-                new ChatMessage { Id = 4, Content = "Willkommen beim technischen Support. Wie kann ich Ihnen helfen?", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(1), IsUser = false },
-                new ChatMessage { Id = 5, Content = "Mein Computer startet nicht mehr.", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(2), IsUser = true },
-                new ChatMessage { Id = 6, Content = "Haben Sie versucht, ihn neu zu starten?", Timestamp = DateTime.Now.AddDays(-1).AddMinutes(3), IsUser = false },
-            }
-        },
-        new Chat
-        {
-            Id = 3,
-            Title = "Produktberatung",
-            CreatedAt = DateTime.Now.AddHours(-5),
-            IsActive = false,
-            Messages = new List<ChatMessage>
-            {
-                new ChatMessage { Id = 7, Content = "Wie kann ich Ihnen bei der Produktauswahl helfen?", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(1), IsUser = false },
-                new ChatMessage { Id = 8, Content = "Ich suche ein neues Smartphone.", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(2), IsUser = true },
-                new ChatMessage { Id = 9, Content = "Welche Funktionen sind Ihnen besonders wichtig?", Timestamp = DateTime.Now.AddHours(-5).AddMinutes(3), IsUser = false },
+                Logger.LogError(ex, "Error initializing services: {ErrorMessage}", ex.Message);
             }
         }
-    };
-
-    // Sample data for measurements
-    private List<Measurement> measurements = new List<Measurement>
+    }    private async Task StartRecording()
     {
-        new Measurement { Id = 1, Name = "CPU-Auslastung", Value = 45.2, Unit = "%", Timestamp = DateTime.Now.AddMinutes(-5) },
-        new Measurement { Id = 2, Name = "Speichernutzung", Value = 3.7, Unit = "GB", Timestamp = DateTime.Now.AddMinutes(-5) },
-        new Measurement { Id = 3, Name = "Netzwerkverkehr", Value = 1.2, Unit = "MB/s", Timestamp = DateTime.Now.AddMinutes(-5) },
-        new Measurement { Id = 4, Name = "Latenz", Value = 23, Unit = "ms", Timestamp = DateTime.Now.AddMinutes(-5) },
-        new Measurement { Id = 5, Name = "Temperatur", Value = 42, Unit = "°C", Timestamp = DateTime.Now.AddMinutes(-5) }
-    };
-
-    private int selectedChatId = 1;
-    private Chat selectedChat => chats.FirstOrDefault(c => c.Id == selectedChatId);
-    private string newMessage = "";
-
-    private void SelectChat(int chatId)
-    {
-        selectedChatId = chatId;
-    }
-
-    private void CreateNewChat()
-    {
-        var newChatId = chats.Max(c => c.Id) + 1;
-        var newChat = new Chat
+        try
         {
-            Id = newChatId,
-            Title = $"Neuer Chat {newChatId}",
-            CreatedAt = DateTime.Now,
-            IsActive = true,
-            Messages = new List<ChatMessage>
-            {
-                new ChatMessage { Id = 1, Content = "Hallo, wie kann ich dir helfen?", Timestamp = DateTime.Now, IsUser = false }
+            Logger.LogInformation("Starte Sprachaufnahme");
+            currentSttMeasurement = PerformanceService.StartSttMeasurement();
+            isRecording = true;
+            await SttService.StartSpeechRecognitionAsync(JSRuntime);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler beim Starten der Sprachaufnahme: {ErrorMessage}", ex.Message);
+            currentSttMeasurement?.Dispose();
+            currentSttMeasurement = null;
+        }
+    }    private async Task StopRecording()
+    {
+        try
+        {
+            if (!isRecording) return;
+            
+            Logger.LogInformation("Stoppe Sprachaufnahme");
+            isRecording = false;
+            await SttService.StopSpeechRecognitionAsync(JSRuntime);
+            
+            // Ensure STT measurement is stopped if still running (fallback safety)
+            currentSttMeasurement?.Dispose();
+            currentSttMeasurement = null;
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler beim Stoppen der Sprachaufnahme: {ErrorMessage}", ex.Message);
+            // Ensure STT measurement is stopped on error
+            currentSttMeasurement?.Dispose();
+            currentSttMeasurement = null;
+        }
+    }[JSInvokable]
+    public async Task OnSpeechRecognized(string text)
+    {
+        try
+        {
+            Logger.LogInformation("Spracherkennung erfolgreich: {Text}", text);
+            
+            recordedText = text;
+                // Füge die Benutzer-Nachricht zum Assistenten-Chat hinzu
+                var userMessage = new ChatMessage
+                {
+                    Id = assistantChat.Messages.Count > 0 ? assistantChat.Messages.Max(m => m.Id) + 1 : 1,
+                    Content = recordedText,
+                    Timestamp = DateTime.Now,
+                    IsUser = true
+                };
+                assistantChat.Messages.Add(userMessage);
+                
+                // Generiere eine Antwort vom Assistenten mit LLM-Messung
+                string assistantResponse;
+                using (var llmMeasurement = PerformanceService.StartLlmMeasurement())
+                {
+                    assistantResponse = await AiAssistant.GetResponseAsync(recordedText);
+                }
+                
+                // Füge die Assistenten-Antwort hinzu
+                var assistantMessage = new ChatMessage
+                {
+                    Id = assistantChat.Messages.Count > 0 ? assistantChat.Messages.Max(m => m.Id) + 1 : 1,
+                    Content = assistantResponse,
+                    Timestamp = DateTime.Now,
+                    IsUser = false
+                };
+                assistantChat.Messages.Add(assistantMessage);
+                
+                // Spreche die Antwort mit TTS
+                await SpeakAssistantResponse(assistantResponse);
+
+                // UI aktualisieren
+                StateHasChanged();
             }
-        };
-
-        chats.Add(newChat);
-        selectedChatId = newChatId;
-    }
-
-    private void SendMessage()
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler bei der Verarbeitung der erkannten Sprache: {ErrorMessage}", ex.Message);
+            // Stelle sicher, dass STT-Messung auch bei Fehlern beendet wird
+            currentSttMeasurement?.Dispose();
+            currentSttMeasurement = null;
+        }
+    }    /// <summary>
+    /// Called from JavaScript when audio recording is completed (for Whisper service)
+    /// This method will be invoked by the browser with the recorded audio data
+    /// </summary>
+    [JSInvokable]
+    public async Task<string> ProcessAudioData(byte[] audioData)
     {
-        if (string.IsNullOrWhiteSpace(newMessage) || selectedChat == null)
-            return;
-
-        var messageId = selectedChat.Messages.Count > 0 ? selectedChat.Messages.Max(m => m.Id) + 1 : 1;
-        selectedChat.Messages.Add(new ChatMessage
+        try
         {
-            Id = messageId,
-            Content = newMessage,
-            Timestamp = DateTime.Now,
-            IsUser = true
-        });
-
-        // Simulate AI response
-        messageId++;
-        selectedChat.Messages.Add(new ChatMessage
+            Logger.LogInformation("Processing audio data with Whisper (Length: {Length} bytes)", audioData.Length);
+            
+            // Get the Whisper service from the injected STT service
+            if (SttService is WhisperSttService whisperService)
+            {
+                // Use the Whisper service to process the audio data with STT measurement
+                string transcription;
+                using (var sttMeasurement = PerformanceService.StartSttMeasurement())
+                {
+                    transcription = await whisperService.ProcessAudioData(audioData);
+                }
+                Logger.LogInformation("Whisper transcription completed: {Text}", transcription);
+                return transcription;
+            }
+            else
+            {
+                Logger.LogWarning("STT Service is not a Whisper service, cannot process audio data");
+                return string.Empty;
+            }
+        }
+        catch (Exception ex)
         {
-            Id = messageId,
-            Content = "Danke für Ihre Nachricht. Ich werde mich darum kümmern.",
-            Timestamp = DateTime.Now.AddSeconds(1),
-            IsUser = false
-        });
-
-        newMessage = "";
+            Logger.LogError(ex, "Error processing audio data with Whisper: {ErrorMessage}", ex.Message);
+            return string.Empty;
+        }
     }
+      private async Task SpeakAssistantResponse(string response)
+    {
+        try
+        {
+            Logger.LogInformation("Spreche Assistenten-Antwort mit TTS: {ResponseLength} Zeichen", response.Length);
+              // UI-Status aktualisieren (thread-safe)
+            isSpeaking = true;
+            await InvokeAsync(() => StateHasChanged());            // Use the injected TTS service with performance measurement
+            if (TtsService != null)
+            {
+                try
+                {
+                    using var ttsMeasurement = PerformanceService.StartTtsMeasurement();
+                    await TtsService.SpeakAsync(response, JSRuntime);
+                    Logger.LogInformation("TTS erfolgreich gestartet für {Length} Zeichen", response.Length);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Fehler beim Sprechen mit TTS-Service: {ErrorMessage}", ex.Message);
+                }
+            }
+            else
+            {
+                Logger.LogWarning("TTS-Service ist nicht verfügbar");
+            }
+              // UI-Status zurücksetzen (mit Verzögerung, thread-safe)
+            await Task.Delay(Math.Min(3000, response.Length * 40)); // ~40ms pro Zeichen, max 3 Sekunden
+            isSpeaking = false;
+            await InvokeAsync(() => StateHasChanged());
+        }        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler beim Sprechen der Assistenten-Antwort: {ErrorMessage}", ex.Message);
+            isSpeaking = false;
+            await InvokeAsync(() => StateHasChanged());
+        }
+    }
+    
+    private async Task StopTts()
+    {
+        try
+        {
+            if (isSpeaking)
+            {
+                // Use the TTS service to stop speaking
+                if (TtsService != null)
+                {
+                    try
+                    {
+                        await TtsService.StopSpeakingAsync(JSRuntime);
+                        Logger.LogInformation("TTS-Ausgabe über Service gestoppt");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Fehler beim Stoppen der TTS über Service: {Error}", ex.Message);
+                    }
+                }
+                else
+                {
+                    Logger.LogWarning("TTS-Service ist nicht verfügbar");
+                }
+                
+                isSpeaking = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler beim Stoppen der TTS-Ausgabe: {ErrorMessage}", ex.Message);
+        }
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Logger.LogDebug("Home.OnInitializedAsync starting");
+
+            // Initialize the database
+            Logger.LogDebug("Initializing database...");
+            await ChatDatabase.InitializeDatabaseAsync();
+            Logger.LogDebug("Database initialized");
+
+            // Load chats
+            Logger.LogDebug("Loading chats...");
+            chats = await ChatDatabase.GetAllChatsAsync();
+            displayedChats = chats.ToList();
+            Logger.LogDebug("Loaded {ChatCount} chats", chats.Count);            // Load available contacts
+            Logger.LogDebug("Loading contacts...");
+            availableContacts = await ChatDatabase.GetAllContactsAsync();
+            Logger.LogDebug("Loaded {ContactCount} contacts", availableContacts.Count);
+
+            // Select the first chat if available
+            if (chats.Any())
+            {
+                selectedChatId = chats.First().Id;
+                Logger.LogDebug("Selected chat ID: {ChatId}", selectedChatId);
+            }            // Load initial log entries
+            Logger.LogDebug("Loading initial log entries...");
+            logEntries = PerformanceService.GetLogEntries();
+            Logger.LogDebug("Found {LogCount} log entries", logEntries.Count);
+
+            // Subscribe to performance updates
+            Logger.LogDebug("Subscribing to performance updates");
+            PerformanceService.PerformanceUpdated += OnPerformanceUpdated;
+            
+            // Starte Timer für regelmäßige Log-Updates (alle 2 Sekunden)
+            Logger.LogDebug("Starting log update timer");
+            logUpdateTimer = new System.Threading.Timer(UpdateLogEntriesFromTimer, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            
+            // Subscribe to message injection events
+            Logger.LogDebug("Subscribing to message injection events");            MessageInjection.ChatNavigationRequested += OnChatNavigationRequested;
+              // Run migration to add ContactId to existing chats
+            Logger.LogDebug("Running chat migration...");
+            // Migration methods have been removed - now handled by database initialization
+            
+            // Ensure chat-contact consistency for demo purposes
+            Logger.LogDebug("Ensuring chat-contact consistency...");
+            // Consistency check removed - now handled by database initialization
+            
+            // Initialize Text Generation Service
+            await InitializeTextGenerationServiceAsync();
+            
+            Logger.LogDebug("Home.OnInitializedAsync completed");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in OnInitializedAsync: {ErrorMessage}", ex.Message);
+        }
+    }    public void Dispose()
+    {
+        try
+        {
+            // Unsubscribe from events when component is disposed
+            PerformanceService.PerformanceUpdated -= OnPerformanceUpdated;
+            MessageInjection.ChatNavigationRequested -= OnChatNavigationRequested;
+            
+            // Stop and dispose log update timer
+            logUpdateTimer?.Dispose();
+            logUpdateTimer = null;
+            
+            // Stop active TTS
+            if (isSpeaking)
+            {
+                StopTts().ConfigureAwait(false);
+            }
+            
+            // Clean up JS object reference
+            objRef?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler in Dispose-Methode: {ErrorMessage}", ex.Message);
+        }
+    }    private void OnPerformanceUpdated(object? sender, EventArgs e)
+    {
+        try
+        {
+            // Update log entries
+            logEntries = PerformanceService.GetLogEntries();
+            lastLogUpdate = DateTime.Now;
+            
+            // Update UI
+            InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating performance data: {ErrorMessage}", ex.Message);
+        }
+    }
+    
+    private void UpdateLogEntriesFromTimer(object? state)
+    {
+        try
+        {
+            // Update log entries from timer
+            var newLogEntries = PerformanceService.GetLogEntries();
+            
+            // Only update UI if there are new entries
+            if (newLogEntries.Count != logEntries.Count)
+            {
+                logEntries = newLogEntries;
+                lastLogUpdate = DateTime.Now;
+                InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating log entries from timer: {ErrorMessage}", ex.Message);
+        }
+    }
+      private void ToggleLogExpansion()
+    {
+        isLogExpanded = !isLogExpanded;
+        Logger.LogInformation("Log expansion toggled to: {IsExpanded}", isLogExpanded);
+        StateHasChanged();
+    }
+    
+    private async Task SelectChat(int chatId)
+    {
+        try
+        {
+            Logger.LogInformation("SelectChat called with chatId={ChatId}", chatId);
+            
+            if (chatId <= 0)
+            {
+                Logger.LogWarning("Invalid chatId: {ChatId}", chatId);
+                return;
+            }
+            
+            selectedChatId = chatId;
+            
+            // Make sure we have the latest data
+            Chat? chat = null;
+            try
+            {
+                chat = await ChatDatabase.GetChatAsync(chatId);
+                if (chat == null)
+                {
+                    Logger.LogWarning("ChatDatabase.GetChatAsync({ChatId}) returned null", chatId);
+                    
+                    // Try to use the ChatService as a fallback
+                    chat = await ChatService.GetChatAsync(chatId);
+                    if (chat == null)
+                    {
+                        Logger.LogWarning("ChatService.GetChatAsync({ChatId}) also returned null", chatId);
+                    }
+                    else
+                    {
+                        Logger.LogInformation("Retrieved chat from ChatService: {ChatId}", chat.Id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error retrieving chat {ChatId}: {ErrorMessage}", chatId, ex.Message);
+            }
+            
+            if (chat != null)
+            {
+                Logger.LogInformation("Retrieved chat: id={ChatId}, Title={Title}, Messages={Count}", 
+                    chat.Id, chat.Title, chat.Messages.Count);
+                    
+                // Update the chat in our list
+                var index = chats.FindIndex(c => c.Id == chatId);
+                if (index >= 0)
+                {
+                    chats[index] = chat;
+                    Logger.LogInformation("Updated chat in list at index {Index}", index);
+                }
+                else
+                {
+                    Logger.LogWarning("Chat {ChatId} not found in chat list!", chatId);
+                    // Add it to the list as it should be there
+                    chats.Insert(0, chat);
+                    Logger.LogInformation("Added chat to list");
+                }
+                
+                // Force UI update
+                await InvokeAsync(StateHasChanged);
+                Logger.LogInformation("UI updated after chat selection");
+                
+                // Force UI update for the ChatView component
+                Logger.LogInformation("Forcing UI update for ChatView");
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                Logger.LogWarning("Selected chat {ChatId} not found in database", chatId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in SelectChat: {ErrorMessage}", ex.Message);
+        }
+    }
+      private async Task ShowContactSelectModal()
+    {
+        // Reload contacts list before showing the modal
+        Logger.LogDebug("Reloading contacts before showing modal");
+        try
+        {
+            availableContacts = await ChatDatabase.GetAllContactsAsync();
+            Logger.LogDebug("Reloaded {ContactCount} contacts", availableContacts.Count);
+
+            if (availableContacts.Count == 0)
+            {
+                Logger.LogDebug("No contacts found, attempting to reinitialize database");
+                await ChatDatabase.InitializeDatabaseAsync();
+                availableContacts = await ChatDatabase.GetAllContactsAsync();
+                Logger.LogDebug("After reinitialization: {ContactCount} contacts", availableContacts.Count);
+            }
+            
+            // Make sure the modal exists
+            if (contactSelectModal == null)
+            {
+                Logger.LogWarning("contactSelectModal is null!");
+                return;
+            }
+            
+            // Show the modal
+            Logger.LogDebug("Showing contact select modal");
+            await contactSelectModal.Show();
+            
+            // Force UI update
+            StateHasChanged();
+            
+            Logger.LogDebug("Modal should now be visible");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in ShowContactSelectModal: {ErrorMessage}", ex.Message);
+        }
+    }
+    
+    private async Task OnContactSelected(Contact contact)
+    {
+        try
+        {
+            Logger.LogInformation("Home.OnContactSelected - Called with contact: {ContactName} (ID: {ContactId})", 
+                contact?.Name ?? "null", contact?.Id ?? 0);
+            
+            if (contact == null)
+            {
+                Logger.LogError("Home.OnContactSelected - Received null contact!");
+                return;
+            }
+            
+            // Log the ChatService instance to see if it's properly injected
+            if (ChatService == null)
+            {
+                Logger.LogError("ChatService is null! Service was not injected properly.");
+                
+                // Fall back to direct creation if ChatService is not available
+                Logger.LogInformation("Falling back to direct chat creation");
+                var newChat = new Chat
+                {
+                    Title = $"Chat with {contact.Name}",
+                    CreatedAt = DateTime.Now,
+                    IsActive = true,
+                    ContactId = contact.Id,
+                    Contact = contact,
+                    Messages = new List<ChatMessage>()
+                };
+                
+                // Add the first message
+                var firstMessage = new ChatMessage
+                {
+                    Content = $"Hallo, ich bin {contact.Name} vom {contact.Department}. Wie kann ich dir helfen?",
+                    Timestamp = DateTime.Now,
+                    IsUser = false
+                };
+                newChat.Messages.Add(firstMessage);
+                
+                try
+                {
+                    // Save using ChatDatabase directly
+                    var chatId = await ChatDatabase.SaveChatAsync(newChat);
+                    newChat.Id = chatId;
+                    
+                    chats.Insert(0, newChat);
+                    displayedChats = new List<Chat>(chats);
+                    
+                    selectedChatId = chatId;
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error in fallback chat creation: {ErrorMessage}", ex.Message);
+                }
+                
+                return;
+            }
+            
+            Logger.LogInformation("Creating new chat with contact {ContactId} ({ContactName})", contact.Id, contact.Name);
+            
+            try 
+            {
+                // Use ChatService to create a new chat with the selected contact
+                var newChat = await ChatService.CreateNewChatAsync(contact);
+                
+                if (newChat == null)
+                {
+                    Logger.LogError("ChatService.CreateNewChatAsync returned null!");
+                    return;
+                }
+                
+                Logger.LogInformation("New chat created with ID: {ChatId}", newChat.Id);
+                
+                if (newChat.Id == 0)
+                {
+                    Logger.LogWarning("New chat has ID=0, which may indicate it wasn't saved correctly");
+                }
+                
+                // Add to our list and select it
+                chats.Insert(0, newChat);
+                displayedChats = new List<Chat>(chats);
+                
+                // Set the selectedChatId directly
+                selectedChatId = newChat.Id;
+                
+                // Force UI update first
+                await InvokeAsync(StateHasChanged);
+                
+                // Then use SelectChat to refresh the UI with the new chat
+                Logger.LogInformation("Selecting chat with ID: {ChatId}", newChat.Id);
+                await SelectChat(newChat.Id);
+                
+                Logger.LogInformation("UI updated with new chat");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error creating chat with ChatService: {ErrorMessage}", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {            Logger.LogError(ex, "Overall error in OnContactSelected: {ErrorMessage}", ex.Message);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnModalCancelled()
+    {
+        // Nothing to do
+    }
+
+    private async Task HandleSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformVectorSearch();
+        }
+    }
+    
+    private async Task PerformVectorSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            // Clear search results and show all chats
+            searchResults.Clear();
+            displayedChats = chats.ToList();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        isSearching = true;
+        try
+        {
+            Logger.LogInformation("Performing vector search for query: {Query}", searchQuery);
+            
+            // Use vector-based semantic search
+            searchResults = await ChatService.SearchChatSegmentsAsync(searchQuery);
+            
+            Logger.LogInformation("Found {ResultCount} vector search results", searchResults?.Count ?? 0);
+            
+            // Clear displayed chats when showing search results
+            displayedChats.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error performing vector search: {ErrorMessage}", ex.Message);
+            searchResults.Clear();
+            // Fallback to showing all chats
+            displayedChats = chats.ToList();
+        }
+        finally
+        {
+            isSearching = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+    
+    private void ClearSearchResults()
+    {
+        searchResults.Clear();
+        searchQuery = "";
+        displayedChats = chats.ToList(); // Show all chats again
+        StateHasChanged();
+    }
+    
+    private async Task NavigateToSearchResult(ChatSegmentSearchResult result)
+    {
+        Logger.LogInformation("User clicked on search result for chat {ChatId} on date: {Date}", 
+            result.Chat?.Id ?? 0, result.Segment.SegmentDate.ToShortDateString());
+        
+        // Navigate to the chat containing this result
+        if (result.Chat != null)
+        {
+            await SelectChat(result.Chat.Id);
+            
+            // Clear search results to return to normal chat view
+            searchResults.Clear();
+            searchQuery = "";
+            displayedChats = chats.ToList();
+            await InvokeAsync(StateHasChanged);
+        }
+    }  
 
     private string GetChatPreview(Chat chat)
     {
@@ -193,6 +942,7 @@
         return lastMessage?.Content ?? "";
     }
 
+    // Helper method to format timestamps for display
     private string FormatTime(DateTime time)
     {
         if (time.Date == DateTime.Now.Date)
@@ -206,6 +956,194 @@
         else
         {
             return time.ToString("dd.MM.yyyy");
+        }
+    }
+
+    private string GetIconForCapability(string capability)
+    {
+        return capability switch
+        {
+            "Textgenerierung" => "bi bi-chat-dots",
+            "Übersetzung" => "bi bi-translate",
+            "Informationen" => "bi bi-lightbulb",
+            "Code-Hilfe" => "bi bi-code-square",            _ => "bi bi-gear"
+        };
+    }
+
+    // Handle chat updates from ChatView component
+    private async Task HandleChatUpdated(Chat updatedChat)
+    {
+        Logger.LogInformation("HandleChatUpdated called with chat: {ChatId}", updatedChat.Id);
+        
+        // Update the chat in our list
+        var index = chats.FindIndex(c => c.Id == updatedChat.Id);
+        if (index >= 0)
+        {
+            chats[index] = updatedChat;
+            Logger.LogInformation("Updated chat in list at index {Index}", index);
+        }
+        
+        // Make sure displayedChats is updated too (in case of search filtering)
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            displayedChats = chats.ToList();
+        }
+        else
+        {
+            // SearchChats();
+        }
+        
+        // Force UI update
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Handle navigation to a chat from global search results
+    private async Task HandleNavigateToChat(Chat targetChat)
+    {
+        Logger.LogInformation("HandleNavigateToChat called with chat: {ChatId}", targetChat.Id);
+          // Select the target chat
+        await SelectChat(targetChat.Id);
+        
+        // Clear any existing search in the search box
+        searchQuery = string.Empty;
+        displayedChats = chats.ToList();
+        
+        // Force UI update
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task InitializeTextGenerationServiceAsync()
+    {
+        try
+        {
+            Logger.LogInformation("Starte Initialisierung des TextGenerationService");
+            isTextGenerationInitializing = true;
+            textGenerationProgress = 0;
+            textGenerationStatus = "Initialisiere KI-Modell";
+            await InvokeAsync(StateHasChanged);
+
+            // Initialisiere das TextGeneration Service mit Progress-Callback
+            await TextGenerationService.InitializeAsync(progress =>
+            {
+                textGenerationProgress = progress;
+                
+                if (progress < 99)
+                {
+                    textGenerationStatus = "Lade KI-Modell";
+                }
+                else
+                {
+                    textGenerationStatus = "Finalisiere Initialisierung";
+                }
+                
+                // UI Update im Hauptthread
+                InvokeAsync(StateHasChanged);
+            });
+
+            // Starte den Chat
+            await TextGenerationService.StartChatAsync(progress =>
+            {
+                textGenerationProgress = 50 + (progress * 0.5); // Start bei 50%, gehe bis 100%
+                textGenerationStatus = "Initialisiere Chat-Engine";
+                
+                // UI Update im Hauptthread
+                InvokeAsync(StateHasChanged);
+            });            isTextGenerationInitializing = false;
+            isTextGenerationInitialized = true;
+            textGenerationProgress = 100;
+            textGenerationStatus = "KI-Modell bereit";
+            
+            Logger.LogInformation("TextGenerationService erfolgreich initialisiert");
+            await InvokeAsync(StateHasChanged);            // Füge die Willkommensnachricht zum Assistant Chat hinzu
+            var welcomeMessage = new ChatMessage
+            {
+                Id = 1,
+                Content = Constants.AgentWelcomeMessage,
+                Timestamp = DateTime.Now,
+                IsUser = false
+            };
+            assistantChat.Messages.Add(welcomeMessage);
+
+            // UI nochmals aktualisieren um die Willkommensnachricht anzuzeigen
+            await InvokeAsync(StateHasChanged);
+
+            // Warte kurz und spreche dann die Willkommensnachricht
+            // (TTS wird verzögert aufgerufen, damit das System vollständig initialisiert ist)
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000); // 2 Sekunden warten
+                try
+                {
+                    Logger.LogInformation("Spreche AI Assistant Willkommensnachricht (verzögert)");
+                    await SpeakAssistantResponse(Constants.AgentWelcomeMessage);
+                }
+                catch (Exception ttsEx)
+                {
+                    Logger.LogError(ttsEx, "Fehler beim Sprechen der Willkommensnachricht: {ErrorMessage}", ttsEx.Message);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler bei der Initialisierung des TextGenerationService: {ErrorMessage}", ex.Message);
+            isTextGenerationInitializing = false;
+            isTextGenerationInitialized = false;
+            textGenerationStatus = "Fehler bei KI-Initialisierung";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// Event-Handler für Chat-Navigation-Anfragen vom MessageInjectionService
+    /// </summary>
+    private async void OnChatNavigationRequested(object? sender, ChatNavigationEventArgs e)
+    {
+        try
+        {
+            Logger.LogInformation("Chat navigation requested for contact {ContactName} (ID: {ContactId})", 
+                e.ContactName ?? "Unknown", e.ContactId);            // Find existing chat for this contact (using getAllChats and filtering)
+            var allChats = await ChatDatabase.GetAllChatsAsync();
+            var existingChat = allChats.FirstOrDefault(c => c.ContactId == e.ContactId);
+            
+            if (existingChat != null)
+            {
+                Logger.LogInformation("Found existing chat {ChatId} for contact {ContactId}", existingChat.Id, e.ContactId);
+                
+                // Zu diesem Chat navigieren
+                await SelectChat(existingChat.Id);
+            }
+            else
+            {
+                Logger.LogInformation("No existing chat found for contact {ContactId}, creating new one", e.ContactId);
+                  // Create new chat for this contact
+                var contact = await ChatDatabase.GetContactAsync(e.ContactId);
+                if (contact != null)
+                {
+                    var newChat = await ChatService.CreateNewChatAsync(contact);
+                    if (newChat != null)
+                    {
+                        // Update chat list
+                        chats = await ChatDatabase.GetAllChatsAsync();
+                        displayedChats = chats.ToList();
+                        
+                        // Navigate to the new chat
+                        await SelectChat(newChat.Id);
+                    }
+                    else
+                    {
+                        Logger.LogError("Failed to create chat for contact {ContactId}", e.ContactId);
+                    }
+                }
+                else
+                {
+                    Logger.LogError("Contact {ContactId} not found", e.ContactId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during chat navigation for contact {ContactId}: {ErrorMessage}", 
+                e.ContactId, ex.Message);
         }
     }
 }

@@ -1,0 +1,310 @@
+@using LocalAiDemo.Shared.Models
+@using LocalAiDemo.Shared.Services
+@using LocalAiDemo.Shared.Services.Chat
+@using LocalAiDemo.Shared.Services.Generation
+@using LocalAiDemo.Shared.Services.Search
+@using Microsoft.Extensions.Logging
+@inject IAiAssistantService AiAssistant
+@inject IChatDatabaseService ChatDatabase
+@inject IChatService ChatService
+@inject IEmbeddingService EmbeddingService
+@inject ILogger<ChatView> Logger
+
+<div class="chat-container-view">
+    @if (CurrentChat != null)
+    {        <div class="chat-header">
+            @if (CurrentChat.Contact != null)
+            {
+                <div class="chat-person-info">
+                    <div class="person-avatar">
+                        @if (!string.IsNullOrEmpty(CurrentChat.Contact.AvatarUrl))
+                        {
+                            <img src="@CurrentChat.Contact.AvatarUrl" alt="@CurrentChat.Contact.Name" />
+                        }
+                        else
+                        {
+                            <div class="avatar-placeholder">
+                                @CurrentChat.Contact.Name[0]
+                            </div>
+                        }
+                        <span class="status-indicator @CurrentChat.Contact.Status.ToString().ToLower()"></span>
+                    </div>
+                    <div>
+                        <h2>@CurrentChat.Contact.Name</h2>
+                        <div class="person-department">@CurrentChat.Contact.Department</div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <h2>@CurrentChat.Title</h2>
+            }
+        </div>
+        
+        <!-- Global Semantic Search -->
+        <div class="chat-search-container">
+            <div class="search-input-group">
+                <input type="text" 
+                       class="form-control" 
+                       placeholder="Globale Suche in allen Chats..." 
+                       @bind="searchQuery" 
+                       @onkeypress="HandleSearchKeyPress" />
+                <button class="btn btn-primary" @onclick="SearchGlobally" disabled="@isSearching">
+                    @if (isSearching)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                    }
+                    else
+                    {
+                        <span class="bi bi-search"></span>
+                    }
+                    Suchen
+                </button>
+            </div>
+            
+            @if (searchResults?.Any() == true)
+            {
+                <div class="search-results">
+                    <div class="search-results-header">
+                        <span>@searchResults.Count Ergebnisse in allen Chats gefunden</span>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ClearSearch">×</button>
+                    </div>
+                    @foreach (var result in searchResults)
+                    {
+                        <div class="search-result-item" @onclick="() => NavigateToResult(result)">                            <div class="result-header">
+                                <strong>@(result.Chat?.Title ?? "Unbekannter Chat")</strong>
+                                @if (result.Contact != null)
+                                {
+                                    <span class="person-info"> - @result.Contact.Name (@result.Contact.Department)</span>
+                                }
+                            </div>
+                            <div class="result-snippet">@result.HighlightedSnippet</div>
+                            <div class="result-meta">
+                                @result.Segment.SegmentDate.ToString("dd.MM.yyyy") - 
+                                Ähnlichkeit: @(result.SimilarityScore.ToString("P0"))
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="chat-messages" id="chat-messages-container">
+            @foreach (var message in CurrentChat.Messages)
+            {
+                <div class="message @(message.IsUser ? "user-message" : "ai-message")">
+                    <div class="message-content">@message.Content</div>
+                    <div class="message-time">@FormatTime(message.Timestamp)</div>
+                </div>
+            }
+        </div>
+        <div class="chat-input">
+            <textarea placeholder="Nachricht eingeben..." 
+                      @bind="newMessage" 
+                      @onkeydown="HandleKeyPress"></textarea>
+            <button @onclick="SendMessage" disabled="@isProcessing">
+                @(isProcessing ? "Sendet..." : "Senden")
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="no-chat-selected">
+            <p>Bitte wählen Sie einen Chat aus oder erstellen Sie einen neuen Chat.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Chat? CurrentChat { get; set; }
+
+    [Parameter]
+    public EventCallback<Chat> OnChatUpdated { get; set; }
+
+    [Parameter]
+    public EventCallback<Chat> OnNavigateToChat { get; set; }
+
+    private string newMessage = "";
+    private bool isProcessing = false;
+    
+    // Search functionality
+    private string searchQuery = string.Empty;
+    private bool isSearching = false;
+    private List<ChatSegmentSearchResult>? searchResults;
+
+    protected override void OnParametersSet()
+    {
+        Logger.LogInformation("ChatView - OnParametersSet called with chat: {ChatId}", CurrentChat?.Id ?? 0);
+        base.OnParametersSet();
+
+        // Scroll to the bottom of the message list when a chat is loaded or messages change
+        ScrollToBottom();
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending message in chat {ChatId}", CurrentChat.Id);
+        isProcessing = true;
+
+        try
+        {
+            var userMessageContent = newMessage;
+            newMessage = ""; // Clear input field immediately
+            StateHasChanged(); // Update UI immediately
+
+            // Use ChatService to add user message with automatic segment handling
+            var updatedChat = await ChatService.AddMessageToChatAsync(CurrentChat.Id, userMessageContent, true);
+            
+            // Update the current chat with the new message
+            CurrentChat.Messages = updatedChat.Messages;
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();
+
+            // Get AI response
+            Logger.LogInformation("Getting AI response");
+            var response = await AiAssistant.GetResponseAsync(userMessageContent);
+            Logger.LogInformation("Received AI response: {Length} characters", response?.Length ?? 0);
+
+            // Add AI response using ChatService
+            updatedChat = await ChatService.AddMessageToChatAsync(CurrentChat.Id, response ?? "No response received", false);
+            
+            // Update the current chat with the AI response
+            CurrentChat.Messages = updatedChat.Messages;
+            await InvokeAsync(StateHasChanged);
+            ScrollToBottom();
+
+            // Notify parent component that chat was updated
+            await OnChatUpdated.InvokeAsync(CurrentChat);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in SendMessage: {ErrorMessage}", ex.Message);
+        }
+        finally
+        {
+            isProcessing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string FormatTime(DateTime time)
+    {
+        if (time.Date == DateTime.Now.Date)
+        {
+            return time.ToString("HH:mm");
+        }
+        else if (time.Date == DateTime.Now.Date.AddDays(-1))
+        {
+            return "Gestern";
+        }
+        else
+        {
+            return time.ToString("dd.MM.yyyy");
+        }
+    }
+
+    private void ScrollToBottom()
+    {
+        // This will be implemented with JS interop if needed
+        // For now we'll use CSS to auto-scroll the chat container
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Public method to be called by parent component when chat is updated externally
+    public void ChatUpdated()
+    {
+        InvokeAsync(() => 
+        {
+            StateHasChanged();
+            ScrollToBottom();
+        });
+    }
+
+    // Method to send a message from an external source (like speech recognition)
+    public async Task SendMessageExternally(string messageContent)
+    {
+        if (string.IsNullOrWhiteSpace(messageContent) || CurrentChat == null)
+            return;
+
+        Logger.LogInformation("Sending external message in chat {ChatId}: {Message}", CurrentChat.Id, messageContent);
+        
+        // Store the message temporarily
+        newMessage = messageContent;
+        
+        // Call the regular send method
+        await SendMessage();
+    }
+
+    #region Search Methods
+
+    private async Task HandleSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !isSearching)
+        {
+            await SearchGlobally();
+        }
+    }
+
+    private async Task SearchGlobally()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery) || isSearching)
+            return;
+
+        isSearching = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            Logger.LogInformation("Performing global search for query: {Query}", searchQuery);
+            searchResults = await ChatService.SearchChatSegmentsAsync(searchQuery, 20);
+            
+            Logger.LogInformation("Found {ResultCount} global search results", searchResults?.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error performing global search: {ErrorMessage}", ex.Message);
+            searchResults = new List<ChatSegmentSearchResult>();
+        }
+        finally
+        {
+            isSearching = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ClearSearch()
+    {
+        searchQuery = string.Empty;
+        searchResults = null;
+        StateHasChanged();
+    }
+
+    private async Task NavigateToResult(ChatSegmentSearchResult result)
+    {
+        Logger.LogInformation("User clicked on search result for chat {ChatId} on date: {Date}", 
+            result.Chat?.Id ?? 0, result.Segment.SegmentDate.ToShortDateString());
+        
+        // Clear search results
+        ClearSearch();
+        
+        // Navigate to the chat containing this result
+        if (result.Chat != null && OnNavigateToChat.HasDelegate)
+        {
+            await OnNavigateToChat.InvokeAsync(result.Chat);
+        }
+    }
+
+    #endregion
+}

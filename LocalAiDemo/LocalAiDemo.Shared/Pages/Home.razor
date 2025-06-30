@@ -287,8 +287,11 @@
     public IJSRuntime JSRuntime { 
         get => jsRuntime ?? throw new InvalidOperationException("JSRuntime was not initialized");
         set => jsRuntime = value;
-    }protected override async Task OnAfterRenderAsync(bool firstRender)
-    {        if (firstRender)
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {        
+        if (firstRender)
         {
             try
             {
@@ -316,7 +319,9 @@
                 Logger.LogError(ex, "Error initializing services: {ErrorMessage}", ex.Message);
             }
         }
-    }    private async Task StartRecording()
+    }    
+    
+    private async Task StartRecording()
     {
         try
         {
@@ -332,7 +337,9 @@
             currentSttMeasurement?.Dispose();
             currentSttMeasurement = null;
         }
-    }    private async Task StopRecording()
+    }    
+    
+    private async Task StopRecording()
     {
         try
         {
@@ -355,7 +362,9 @@
             currentSttMeasurement?.Dispose();
             currentSttMeasurement = null;
         }
-    }[JSInvokable]
+    }
+    
+    [JSInvokable]
     public async Task OnSpeechRecognized(string text)
     {
         try
@@ -395,7 +404,6 @@
 
                 // UI aktualisieren
                 StateHasChanged();
-            }
         }
         catch (Exception ex)
         {
@@ -404,7 +412,9 @@
             currentSttMeasurement?.Dispose();
             currentSttMeasurement = null;
         }
-    }    /// <summary>
+    }    
+    
+    /// <summary>
     /// Called from JavaScript when audio recording is completed (for Whisper service)
     /// This method will be invoked by the browser with the recorded audio data
     /// </summary>
@@ -439,7 +449,8 @@
             return string.Empty;
         }
     }
-      private async Task SpeakAssistantResponse(string response)
+      
+    private async Task SpeakAssistantResponse(string response)
     {
         try
         {
@@ -549,7 +560,8 @@
             logUpdateTimer = new System.Threading.Timer(UpdateLogEntriesFromTimer, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
             
             // Subscribe to message injection events
-            Logger.LogDebug("Subscribing to message injection events");            MessageInjection.ChatNavigationRequested += OnChatNavigationRequested;
+            Logger.LogDebug("Subscribing to message injection events");            
+            MessageInjection.ChatNavigationRequested += OnChatNavigationRequested;
               // Run migration to add ContactId to existing chats
             Logger.LogDebug("Running chat migration...");
             // Migration methods have been removed - now handled by database initialization
@@ -567,7 +579,9 @@
         {
             Logger.LogError(ex, "Error in OnInitializedAsync: {ErrorMessage}", ex.Message);
         }
-    }    public void Dispose()
+    }    
+    
+    public void Dispose()
     {
         try
         {
@@ -592,7 +606,9 @@
         {
             Logger.LogError(ex, "Fehler in Dispose-Methode: {ErrorMessage}", ex.Message);
         }
-    }    private void OnPerformanceUpdated(object? sender, EventArgs e)
+    }    
+    
+    private void OnPerformanceUpdated(object? sender, EventArgs e)
     {
         try
         {
@@ -629,7 +645,9 @@
             Logger.LogError(ex, "Error updating log entries from timer: {ErrorMessage}", ex.Message);
         }
     }
-      private void ToggleLogExpansion()
+      
+    
+    private void ToggleLogExpansion()
     {
         isLogExpanded = !isLogExpanded;
         Logger.LogInformation("Log expansion toggled to: {IsExpanded}", isLogExpanded);
@@ -714,7 +732,8 @@
             Logger.LogError(ex, "Error in SelectChat: {ErrorMessage}", ex.Message);
         }
     }
-      private async Task ShowContactSelectModal()
+      
+    private async Task ShowContactSelectModal()
     {
         // Reload contacts list before showing the modal
         Logger.LogDebug("Reloading contacts before showing modal");

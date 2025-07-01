@@ -370,6 +370,7 @@
 .assistant-actions {
     display: flex;
     margin-top: auto;
+    gap: 10px;
 }
 
 .action-button {
@@ -468,8 +469,11 @@
     background-color: #1b6ec2;
     color: white;
     transition: all 0.2s ease;
-    margin-right: 10px;
 }
+
+    .voice-record-button i {
+        margin-right: 5px;
+    }
 
     .voice-record-button:hover {
         background-color: #1657a3;
@@ -500,6 +504,66 @@
         background-color: #28a745;
         animation: tts-pulse 2s infinite;
     }
+
+/* TTS Stop Button Styling */
+.tts-stop-button {
+    background-color: #dc3545;
+    color: white;
+    transition: all 0.2s ease;
+}
+
+    .tts-stop-button i {
+        margin-right: 5px;
+    }
+
+    .tts-stop-button:hover:not(:disabled) {
+        background-color: #c82333;
+    }
+
+    .tts-stop-button:disabled {
+        background-color: #6c757d;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .tts-stop-button.speaking {
+        background-color: #dc3545;
+        animation: stop-pulse 1.5s infinite;
+    }
+
+    .tts-stop-button.generating {
+        background-color: #ffc107;
+        color: #212529;
+        animation: generating-pulse 2s infinite;
+    }
+
+@keyframes generating-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 8px rgba(255, 193, 7, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+    }
+}
+
+@keyframes stop-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 8px rgba(220, 53, 69, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+    }
+}
 
 @keyframes tts-pulse {
     0% {

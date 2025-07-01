@@ -4,6 +4,8 @@
     {
         Task<string> GetResponseAsync(string prompt);
 
+        Task<string> GetResponseAsync(string prompt, CancellationToken cancellationToken);
+
         string GetAssistantName();
     }
 }

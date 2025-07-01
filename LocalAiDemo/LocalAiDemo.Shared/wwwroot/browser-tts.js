@@ -100,8 +100,18 @@ window.speakText = (text) => {
 window.stopSpeaking = () => {
     try {
         if (speechSynthesis) {
+            // Verwende sowohl cancel() als auch pause() für sicheres Stoppen
             speechSynthesis.cancel();
+            speechSynthesis.pause();
+            
+            // Setze currentUtterance auf null
             currentUtterance = null;
+            
+            // Force clear the speech queue (workaround für manche Browser)
+            setTimeout(() => {
+                speechSynthesis.cancel();
+            }, 10);
+            
             console.log('TTS: Sprechen gestoppt');
             return true;
         }

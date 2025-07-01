@@ -24,6 +24,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         private IChatClient? _chatClient; //https://learn.microsoft.com/de-de/dotnet/ai/microsoft-extensions-ai
         private List<ChatMessage> _chatHistory = new List<ChatMessage>();
         private readonly List<FunctionCallingHelper.FunctionDescription> _availableFunctions = new();
+        private CancellationTokenSource? _currentOperationCts;
 
         public LocalTextGenerationService(
             IOptions<AppConfiguration> config,
@@ -108,6 +109,39 @@ namespace LocalAiDemo.Shared.Services.Generation
 
         public async Task<string> InferAsync(string message)
         {
+            return await InferAsync(message, CancellationToken.None);
+        }
+
+        public async Task<string> InferAsync(string message, CancellationToken cancellationToken)
+        {
+            // Vorherige Operation abbrechen falls vorhanden
+            _currentOperationCts?.Cancel();
+            _currentOperationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            
+            try
+            {
+                return await InferInternalAsync(message, _currentOperationCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Text-Generierung wurde abgebrochen");
+                throw;
+            }
+            finally
+            {
+                _currentOperationCts?.Dispose();
+                _currentOperationCts = null;
+            }
+        }
+
+        public void CancelCurrentOperation()
+        {
+            _currentOperationCts?.Cancel();
+            _logger.LogInformation("Aktuelle Text-Generierung wird abgebrochen");
+        }
+
+        private async Task<string> InferInternalAsync(string message, CancellationToken cancellationToken)
+        {
             var stopwatch = new Stopwatch();
 
             _chatHistory.Add(new ChatMessage(ChatRole.User, message));
@@ -128,14 +162,18 @@ namespace LocalAiDemo.Shared.Services.Generation
 
             while (functionCallCount < maxFunctionCalls)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 stopwatch.Reset();
                 stopwatch.Start();
                 // LLM-Antwort generieren
-                var response = await _chatClient.GetResponseAsync(_chatHistory);
+                var response = await _chatClient.GetResponseAsync(_chatHistory, cancellationToken: cancellationToken);
                 stopwatch.Stop();
 
                 _logger.LogInformation("LLM Antwort nach {duration}ms: {response}", stopwatch.ElapsedMilliseconds,
                     response);
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Prüfen, ob die Antwort einen Funktionsaufruf enthält
                 var functionCall = FunctionCallingHelper.ExtractFunctionCall(response.Text);
@@ -154,7 +192,7 @@ namespace LocalAiDemo.Shared.Services.Generation
                 _logger.LogInformation("Function Call {Count}/{Max} erkannt: {FunctionName}", functionCallCount,
                     maxFunctionCalls, functionCall.Name);
 
-                string functionResponse = await ExecuteFunctionAsync(functionCall);
+                string functionResponse = await ExecuteFunctionAsync(functionCall, cancellationToken);
 
                 // Function Call und Antwort zum Chat-Verlauf hinzufügen
                 _chatHistory.Add(new ChatMessage(ChatRole.Assistant, response.Text));
@@ -164,10 +202,12 @@ namespace LocalAiDemo.Shared.Services.Generation
                     functionResponse);
             } // Maximum erreicht - Warnung und letzte Antwort zurückgeben
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             _logger.LogWarning(
                 "Maximum von {MaxCalls} Function Calls erreicht. Ausgeführte Funktionen: [{Functions}]. Breche ab.",
                 maxFunctionCalls, string.Join(", ", executedFunctions));
-            var finalResponse = await _chatClient.GetResponseAsync(_chatHistory);
+            var finalResponse = await _chatClient.GetResponseAsync(_chatHistory, cancellationToken: cancellationToken);
             _chatHistory.AddMessages(finalResponse);
             return finalResponse.Text;
         }
@@ -176,21 +216,24 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// Führt einen Function Call aus und gibt die Antwort zurück
         /// </summary>
         /// <param name="functionCall">Der auszuführende Function Call</param>
+        /// <param name="cancellationToken">Token zum Abbrechen der Operation</param>
         /// <returns>Die Antwort der Funktion</returns>
-        private async Task<string> ExecuteFunctionAsync(FunctionCallingHelper.FunctionCall functionCall)
+        private async Task<string> ExecuteFunctionAsync(FunctionCallingHelper.FunctionCall functionCall, CancellationToken cancellationToken)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 _logger.LogDebug("Führe Funktion {FunctionName} mit Argumenten aus: {Arguments}",
                     functionCall.Name,
                     string.Join(", ", functionCall.Arguments.Select(kvp => $"{kvp.Key}={kvp.Value}")));
                 var result = functionCall.Name.ToLowerInvariant() switch
                 {
-                    "createmessage" => await ExecuteCreateMessageFunction(functionCall),
-                    "getavailablecontacts" => await ExecuteGetAvailableContactsFunction(),
-                    "searchcontacts" => await ExecuteSearchContactsFunction(functionCall),
-                    "getcontactbyname" => await ExecuteGetContactByNameFunction(functionCall),
-                    "searchchathistory" => await ExecuteSearchChatHistoryFunction(functionCall),
+                    "createmessage" => await ExecuteCreateMessageFunction(functionCall, cancellationToken),
+                    "getavailablecontacts" => await ExecuteGetAvailableContactsFunction(cancellationToken),
+                    "searchcontacts" => await ExecuteSearchContactsFunction(functionCall, cancellationToken),
+                    "getcontactbyname" => await ExecuteGetContactByNameFunction(functionCall, cancellationToken),
+                    "searchchathistory" => await ExecuteSearchChatHistoryFunction(functionCall, cancellationToken),
                     _ =>
                         $"Unbekannte Funktion: {functionCall.Name}. Verfügbare Funktionen: CreateMessage, GetAvailableContacts, SearchContacts, GetContactByName, SearchChatHistory"
                 };
@@ -244,7 +287,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// <summary>
         /// Führt die CreateMessage-Funktion aus
         /// </summary>
-        private async Task<string> ExecuteCreateMessageFunction(FunctionCallingHelper.FunctionCall functionCall)
+        private async Task<string> ExecuteCreateMessageFunction(FunctionCallingHelper.FunctionCall functionCall, CancellationToken cancellationToken)
         {
             try
             {
@@ -274,7 +317,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// <summary>
         /// Führt die GetAvailableContacts-Funktion aus
         /// </summary>
-        private async Task<string> ExecuteGetAvailableContactsFunction()
+        private async Task<string> ExecuteGetAvailableContactsFunction(CancellationToken cancellationToken)
         {
             try
             {
@@ -298,7 +341,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// <summary>
         /// Führt die SearchContacts-Funktion aus
         /// </summary>
-        private async Task<string> ExecuteSearchContactsFunction(FunctionCallingHelper.FunctionCall functionCall)
+        private async Task<string> ExecuteSearchContactsFunction(FunctionCallingHelper.FunctionCall functionCall, CancellationToken cancellationToken)
         {
             try
             {
@@ -329,7 +372,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// <summary>
         /// Führt die GetContactByName-Funktion aus
         /// </summary>
-        private async Task<string> ExecuteGetContactByNameFunction(FunctionCallingHelper.FunctionCall functionCall)
+        private async Task<string> ExecuteGetContactByNameFunction(FunctionCallingHelper.FunctionCall functionCall, CancellationToken cancellationToken)
         {
             try
             {
@@ -360,7 +403,7 @@ namespace LocalAiDemo.Shared.Services.Generation
         /// <summary>
         /// Führt die SearchChatHistory-Funktion aus
         /// </summary>
-        private async Task<string> ExecuteSearchChatHistoryFunction(FunctionCallingHelper.FunctionCall functionCall)
+        private async Task<string> ExecuteSearchChatHistoryFunction(FunctionCallingHelper.FunctionCall functionCall, CancellationToken cancellationToken)
         {
             try
             {

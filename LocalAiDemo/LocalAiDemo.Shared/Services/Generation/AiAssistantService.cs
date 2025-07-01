@@ -4,8 +4,12 @@ namespace LocalAiDemo.Shared.Services.Generation
     {
         public async Task<string> GetResponseAsync(string prompt)
         {
-            var response = await _textGenerationService.InferAsync(prompt);
+            return await GetResponseAsync(prompt, CancellationToken.None);
+        }
 
+        public async Task<string> GetResponseAsync(string prompt, CancellationToken cancellationToken)
+        {
+            var response = await _textGenerationService.InferAsync(prompt, cancellationToken);
             return response;
         }
 

@@ -37,6 +37,7 @@ namespace LocalAiDemo.Shared.Services
         private List<ChatMessage> _chatHistory = new List<ChatMessage>();
         private Kernel? _kernel;
         private bool _isInitialized = false;
+        private CancellationTokenSource? _currentOperationCts;
 
         public SemanticKernelTextGenerationService(
             IOptions<AppConfiguration> config,
@@ -237,6 +238,40 @@ namespace LocalAiDemo.Shared.Services
 
         public async Task<string> InferAsync(string message)
         {
+            return await InferAsync(message, CancellationToken.None);
+        }
+
+        public async Task<string> InferAsync(string message, CancellationToken cancellationToken)
+        {
+            // Vorherige Operation abbrechen falls vorhanden
+            _currentOperationCts?.Cancel();
+            _currentOperationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            
+            try
+            {
+                return await InferInternalAsync(message, _currentOperationCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Text-Generierung wurde abgebrochen");
+                throw;
+            }
+            finally
+            {
+                _currentOperationCts?.Dispose();
+                _currentOperationCts = null;
+            }
+        }
+
+        public void CancelCurrentOperation()
+        {
+            _logger.LogInformation("CancelCurrentOperation aufgerufen");
+            _currentOperationCts?.Cancel();
+            _logger.LogInformation("Aktuelle Text-Generierung wird abgebrochen - CancellationTokenSource.Cancel() aufgerufen");
+        }
+
+        private async Task<string> InferInternalAsync(string message, CancellationToken cancellationToken)
+        {
             if (!_isInitialized || _kernel == null || _executor == null)
             {
                 _logger.LogWarning("Service ist nicht initialisiert");
@@ -245,12 +280,16 @@ namespace LocalAiDemo.Shared.Services
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 _logger.LogInformation("Verarbeite Nachricht: {Message}", message);
 
                 // Check if this model supports function calling
                 _logger.LogInformation("Model: {Model}, Chat History Count: {Count}",
                     _appConfiguration.Value.GenerationProvider, _chatHistory.Count);
                 _chatHistory.Add(new ChatMessage(ChatRole.User, message));
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Semantic Kernel ChatCompletion Service abrufen
                 var chatCompletionService = _kernel.GetRequiredService<IChatCompletionService>();
@@ -265,6 +304,8 @@ namespace LocalAiDemo.Shared.Services
                 {
                     _logger.LogInformation("Plugin Details:\n{PluginInfo}", GetPluginInfo());
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Chat History in Semantic Kernel Format konvertieren
                 var skChatHistory = new Microsoft.SemanticKernel.ChatCompletion.ChatHistory();
@@ -301,11 +342,32 @@ namespace LocalAiDemo.Shared.Services
                 _logger.LogInformation("Sending request with {FunctionCount} available functions",
                     _kernel.Plugins.SelectMany(p => p).Count());
 
+                cancellationToken.ThrowIfCancellationRequested();
+                _logger.LogInformation("CancellationToken status before LLM call: IsCancelled={IsCancelled}", cancellationToken.IsCancellationRequested);
+
                 // Chat-Antwort mit automatischem Function Calling generieren
-                var response = await chatCompletionService.GetChatMessageContentAsync(
+                // Verwende eine robuste Task-basierte Lösung mit Timeout für bessere Cancellation-Unterstützung
+                var llmTask = chatCompletionService.GetChatMessageContentAsync(
                     skChatHistory,
                     executionSettings,
-                    _kernel);
+                    _kernel,
+                    CancellationToken.None); // Verwende KEIN CancellationToken hier, da LlamaSharp es nicht unterstützt
+
+                // Implementiere eigene Cancellation-Logik
+                var cancellationTask = Task.Delay(Timeout.Infinite, cancellationToken);
+                var completedTask = await Task.WhenAny(llmTask, cancellationTask);
+
+                if (completedTask == cancellationTask)
+                {
+                    _logger.LogInformation("LLM call wurde durch CancellationToken abgebrochen - werfe OperationCanceledException");
+                    cancellationToken.ThrowIfCancellationRequested(); // Das wirft die Exception
+                }
+
+                _logger.LogInformation("LLM call hat normal beendet, hole Ergebnis...");
+                var response = await llmTask;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                _logger.LogInformation("LLM call completed successfully, CancellationToken status: IsCancelled={IsCancelled}", cancellationToken.IsCancellationRequested);
 
                 _logger.LogInformation("Received response. Function calls attempted: {HasFunctionCalls}",
                     !string.IsNullOrEmpty(response.Content) && response.Content.Contains("function"));
@@ -316,7 +378,12 @@ namespace LocalAiDemo.Shared.Services
                 _logger.LogInformation("Antwort generiert: {Response}", response.Content);
 
                 // Fallback für manuelles Function Calling versuchen
-                return await TryManualFunctionCallingAsync(message, response.Content ?? "");
+                return await TryManualFunctionCallingAsync(message, response.Content ?? "", cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Text-Generierung wurde abgebrochen (OperationCanceledException)");
+                throw; // Re-throw to propagate cancellation
             }
             catch (Exception ex)
             {
@@ -364,16 +431,20 @@ namespace LocalAiDemo.Shared.Services
         /// Fallback method for manual function calling when Semantic Kernel auto function calling
         /// doesn't work
         /// </summary>
-        private async Task<string> TryManualFunctionCallingAsync(string userMessage, string aiResponse)
+        private async Task<string> TryManualFunctionCallingAsync(string userMessage, string aiResponse, CancellationToken cancellationToken)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 // Check if the AI response contains function call instructions
                 if (ContainsFunctionCallInstructions(aiResponse))
                 {
                     _logger.LogInformation("AI response contains function call instructions, executing them...");
                     _logger.LogInformation("AI response to parse: {AiResponse}", aiResponse);
-                    var functionResult = await ExecuteFunctionCallsFromResponse(aiResponse, userMessage);
+                    var functionResult = await ExecuteFunctionCallsFromResponse(aiResponse, userMessage, cancellationToken);
+
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     _logger.LogInformation("Function execution result: {FunctionResult}", functionResult ?? "(empty)");
 
@@ -390,6 +461,8 @@ namespace LocalAiDemo.Shared.Services
                     }
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Check if the AI response suggests a function call should be made
                 if (ShouldAttemptFunctionCall(userMessage, aiResponse))
                 {
@@ -397,7 +470,9 @@ namespace LocalAiDemo.Shared.Services
                         userMessage);
 
                     // Try to execute function calls manually based on user intent
-                    var functionResult = await ExecuteManualFunctionCall(userMessage);
+                    var functionResult = await ExecuteManualFunctionCall(userMessage, cancellationToken);
+
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     if (!string.IsNullOrEmpty(functionResult))
                     {
@@ -411,11 +486,28 @@ namespace LocalAiDemo.Shared.Services
                         skChatHistory.AddUserMessage(followUpPrompt);
 
                         var chatCompletionService = _kernel!.GetRequiredService<IChatCompletionService>();
-                        var followUpResponse = await chatCompletionService.GetChatMessageContentAsync(skChatHistory);
+                        
+                        // Verwende robuste Cancellation-Logik auch hier
+                        var followUpTask = chatCompletionService.GetChatMessageContentAsync(skChatHistory, cancellationToken: CancellationToken.None);
+                        var cancellationTask = Task.Delay(Timeout.Infinite, cancellationToken);
+                        var completedTask = await Task.WhenAny(followUpTask, cancellationTask);
+
+                        if (completedTask == cancellationTask)
+                        {
+                            _logger.LogInformation("Follow-up LLM call wurde durch CancellationToken abgebrochen - werfe OperationCanceledException");
+                            cancellationToken.ThrowIfCancellationRequested(); // Das wirft die Exception
+                        }
+
+                        var followUpResponse = await followUpTask;
 
                         return followUpResponse.Content ?? aiResponse;
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Manual function calling wurde abgebrochen (OperationCanceledException)");
+                throw; // Re-throw to propagate cancellation
             }
             catch (Exception ex)
             {
@@ -454,7 +546,7 @@ namespace LocalAiDemo.Shared.Services
         /// <summary>
         /// Executes function calls based on AI response instructions
         /// </summary>
-        private async Task<string> ExecuteFunctionCallsFromResponse(string aiResponse, string userMessage)
+        private async Task<string> ExecuteFunctionCallsFromResponse(string aiResponse, string userMessage, CancellationToken cancellationToken)
         {
             var results = new List<string>();
             Contact? foundContact = null;
@@ -697,7 +789,7 @@ namespace LocalAiDemo.Shared.Services
         /// <summary>
         /// Executes function calls manually based on user intent
         /// </summary>
-        private async Task<string> ExecuteManualFunctionCall(string userMessage)
+        private async Task<string> ExecuteManualFunctionCall(string userMessage, CancellationToken cancellationToken)
         {
             var lowerMessage = userMessage.ToLower();
 

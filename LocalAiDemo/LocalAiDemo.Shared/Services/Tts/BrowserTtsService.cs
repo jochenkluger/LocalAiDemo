@@ -153,8 +153,18 @@ namespace LocalAiDemo.Shared.Services.Tts
                         window.stopSpeaking = function() {
                             try {
                                 if ('speechSynthesis' in window) {
+                                    // Verwende sowohl cancel() als auch pause() für sicheres Stoppen
                                     window.speechSynthesis.cancel();
+                                    window.speechSynthesis.pause();
+                                    
+                                    // Setze currentUtterance auf null
                                     window.currentUtterance = null;
+                                    
+                                    // Force clear the speech queue (workaround für manche Browser)
+                                    setTimeout(() => {
+                                        window.speechSynthesis.cancel();
+                                    }, 10);
+                                    
                                     console.log('TTS: Sprache gestoppt');
                                     return true;
                                 }

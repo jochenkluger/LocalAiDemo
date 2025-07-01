@@ -175,6 +175,10 @@
                                 @onmousedown="StartRecording" @onmouseup="StopRecording" @onmouseleave="StopRecording">
                             <i class="bi bi-mic"></i> @(isRecording ? "Aufnahme läuft..." : "Sprechen (Halten)")
                         </button>
+                        <button class="action-button tts-stop-button @(isSpeaking ? "speaking" : "") @(isGeneratingText ? "generating" : "")" 
+                                @onclick="StopTts" disabled="@(!isSpeaking && !isGeneratingText)">
+                            <i class="bi bi-stop-circle"></i> Stop
+                        </button>
                     </div>
             }
         </div>
@@ -279,7 +283,10 @@
 
     // Sprachaufnahme-Variablen
     private bool isRecording = false;
-    private bool isSpeaking = false; private string recordedText = "";
+    private bool isSpeaking = false;
+    private bool isGeneratingText = false;
+    private CancellationTokenSource? currentGenerationCts;
+    private string recordedText = "";
     private IJSRuntime? jsRuntime;
     private DotNetObjectReference<Home>? objRef;
     private IDisposable? currentSttMeasurement;
@@ -390,9 +397,32 @@
 
             // Generiere eine Antwort vom Assistenten mit LLM-Messung
             string assistantResponse;
-            using (var llmMeasurement = PerformanceService.StartLlmMeasurement())
+            isGeneratingText = true;
+            currentGenerationCts = new CancellationTokenSource();
+            
+            try
             {
-                assistantResponse = await AiAssistant.GetResponseAsync(recordedText);
+                // UI-Update um Stop-Button zu aktivieren
+                await InvokeAsync(() => StateHasChanged());
+                
+                using (var llmMeasurement = PerformanceService.StartLlmMeasurement())
+                {
+                    assistantResponse = await AiAssistant.GetResponseAsync(recordedText, currentGenerationCts.Token);
+                }
+                
+                Logger.LogInformation("Text-Generierung erfolgreich abgeschlossen");
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.LogInformation("Text-Generierung wurde abgebrochen");
+                return; // Früher Ausstieg bei Abbruch
+            }
+            finally
+            {
+                isGeneratingText = false;
+                currentGenerationCts?.Dispose();
+                currentGenerationCts = null;
+                await InvokeAsync(() => StateHasChanged());
             }
 
             // Füge die Assistenten-Antwort hinzu
@@ -463,7 +493,9 @@
             Logger.LogInformation("Spreche Assistenten-Antwort mit TTS: {ResponseLength} Zeichen", response.Length);
             // UI-Status aktualisieren (thread-safe)
             isSpeaking = true;
-            await InvokeAsync(() => StateHasChanged());            // Use the injected TTS service with performance measurement
+            await InvokeAsync(() => StateHasChanged());
+
+            // Use the injected TTS service with performance measurement
             if (TtsService != null)
             {
                 try
@@ -471,20 +503,28 @@
                     using var ttsMeasurement = PerformanceService.StartTtsMeasurement();
                     await TtsService.SpeakAsync(response, JSRuntime);
                     Logger.LogInformation("TTS erfolgreich gestartet für {Length} Zeichen", response.Length);
+                    
+                    // Wait for speech to complete (estimate based on text length)
+                    var estimatedDuration = Math.Min(10000, response.Length * 80); // ~80ms pro Zeichen, max 10 Sekunden
+                    await Task.Delay(estimatedDuration);
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Fehler beim Sprechen mit TTS-Service: {ErrorMessage}", ex.Message);
                 }
+                finally
+                {
+                    // Ensure isSpeaking is reset
+                    isSpeaking = false;
+                    await InvokeAsync(() => StateHasChanged());
+                }
             }
             else
             {
                 Logger.LogWarning("TTS-Service ist nicht verfügbar");
+                isSpeaking = false;
+                await InvokeAsync(() => StateHasChanged());
             }
-            // UI-Status zurücksetzen (mit Verzögerung, thread-safe)
-            await Task.Delay(Math.Min(3000, response.Length * 40)); // ~40ms pro Zeichen, max 3 Sekunden
-            isSpeaking = false;
-            await InvokeAsync(() => StateHasChanged());
         }
         catch (Exception ex)
         {
@@ -498,6 +538,31 @@
     {
         try
         {
+            Logger.LogInformation("StopTts wurde aufgerufen. IsSpeaking: {IsSpeaking}, IsGeneratingText: {IsGenerating}", isSpeaking, isGeneratingText);
+            
+            // Cancel any ongoing text generation
+            if (isGeneratingText && currentGenerationCts != null)
+            {
+                try
+                {
+                    Logger.LogInformation("Breche laufende Text-Generierung ab");
+                    currentGenerationCts.Cancel();
+                    TextGenerationService.CancelCurrentOperation();
+                    isGeneratingText = false;
+                    Logger.LogInformation("Text-Generierung abgebrochen - Button sollte sich deaktivieren");
+                    await InvokeAsync(() => StateHasChanged());
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Fehler beim Abbrechen der Text-Generierung: {Error}", ex.Message);
+                }
+            }
+            else
+            {
+                Logger.LogInformation("Text-Generierung nicht aktiv. IsGeneratingText: {IsGenerating}, CTS: {CTS}", 
+                    isGeneratingText, currentGenerationCts != null ? "exists" : "null");
+            }
+            
             if (isSpeaking)
             {
                 // Use the TTS service to stop speaking
@@ -505,6 +570,7 @@
                 {
                     try
                     {
+                        Logger.LogInformation("Rufe TtsService.StopSpeakingAsync auf");
                         await TtsService.StopSpeakingAsync(JSRuntime);
                         Logger.LogInformation("TTS-Ausgabe über Service gestoppt");
                     }
@@ -518,13 +584,23 @@
                     Logger.LogWarning("TTS-Service ist nicht verfügbar");
                 }
 
+                // Force reset the speaking state
                 isSpeaking = false;
-                StateHasChanged();
+                Logger.LogInformation("isSpeaking auf false gesetzt");
+                await InvokeAsync(() => StateHasChanged());
+            }
+            else
+            {
+                Logger.LogInformation("TTS ist nicht aktiv - nichts zu stoppen");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Fehler beim Stoppen der TTS-Ausgabe: {ErrorMessage}", ex.Message);
+            // Ensure state is reset even on error
+            isSpeaking = false;
+            isGeneratingText = false;
+            await InvokeAsync(() => StateHasChanged());
         }
     }
 
@@ -598,6 +674,11 @@
             {
                 StopTts().ConfigureAwait(false);
             }
+            
+            // Cancel any ongoing text generation
+            currentGenerationCts?.Cancel();
+            currentGenerationCts?.Dispose();
+            currentGenerationCts = null;
 
             // Clean up JS object reference
             objRef?.Dispose();
